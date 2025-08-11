@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>株式評価ミニアプリ</title>
+
+  <!-- 同一オリジンの静的配信のみ使用（価格APIだけ許可） -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'unsafe-inline';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'self' https://stock-quote-api-opal.vercel.app;">
+
+  <style>
+    :root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f8fafc;--brand:#0ea5e9}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(#fff,#f8fafc);color:var(--fg);
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:1200px;margin:28px auto;padding:0 16px}
+    h1{margin:0 0 8px;font-size:24px}
+    .sub{color:var(--muted);font-size:13px}
+    .row{display:grid;gap:16px}
+    .g2{grid-template-columns:1fr 1fr}
+    .g3{grid-template-columns:1fr 1fr 1fr}
+    .g5{grid-template-columns:repeat(5,1fr)}
+    .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    input[type="text"],input[type="number"]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+    input[type="file"]{font-size:13px}
+    .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px}
+    .btn:hover{border-color:#cbd5e1}
+    .badge{display:inline-block;color:#fff;padding:6px 10px;border-radius:999px;font-weight:600}
+    .b-buy{background:#059669}.b-hold{background:#f59e0b}.b-sell{background:#e11d48}
+    .b-great{background:#047857}.b-good{background:#10b981}.b-watch{background:#f59e0b}.b-bad{background:#e11d48}
+    .muted{color:var(--muted);font-size:12px}
+    .grid4{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px}
+    .rowline{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+    .rowline:last-child{border-bottom:none}
+    .pill{padding:2px 6px;border-radius:8px;background:#eef2ff;font-size:12px;color:#334155}
+    .link{color:#2563eb;text-decoration:underline}
+    @media (max-width:900px){.g2,.g3{grid-template-columns:1fr}.grid4{grid-template-columns:1fr 1fr 1fr 1fr}}
+  </style>
+
+  <!-- ライブラリ（同一オリジン） -->
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/vendor/xlsx.full.min.js"></script>
+
+  <script>
+    // 価格API（Vercelデプロイ済）
+    const QUOTE_API = "https://stock-quote-api-opal.vercel.app/api/quote";
+
+    // 小道具
+    const asArray = v => Array.isArray(v) ? v : [];
+    const clamp = (x, lo=0, hi=100) => Math.max(lo, Math.min(hi, x));
+    const prettyPct = x => (!isFinite(x) ? "-" : (x*100).toFixed(2) + "%");
+    const prettyNum = x => (!isFinite(x) ? "-" : Number(x).toLocaleString(undefined,{maximumFractionDigits:2}));
+    const toNum = v => { if(v===null||v===undefined||v==="") return 0; const n=Number(String(v).replace(/[\u3000\s,]/g,"")); return Number.isFinite(n) ? n : 0; };
+    const numberOrEmpty = v => { if(v===""||v===null||v===undefined) return ""; const n=Number(String(v).replace(/[\u3000\s,]/g,"")); return Number.isFinite(n)?n:""; };
+    const parsePercentCell = v => { if(v===null||v===undefined||v==="") return 0; const s=String(v).trim(); if(s.includes("%")) return toNum(s.replace(/%/g,"")); const n=toNum(s); return Math.abs(n)<=1 ? n*100 : n; };
+
+    // 統計
+    const mean = arr => { const a=asArray(arr).map(Number).filter(n=>Number.isFinite(n)); return a.length? a.reduce((s,v)=>s+v,0)/a.length : 0; };
+    const stdev = arr => { const a=asArray(arr).map(Number).filter(n=>Number.isFinite(n)); const m=mean(a); const v=a.length? a.reduce((s,v2)=>s+(v2-m)**2,0)/a.length:0; return Math.sqrt(Math.max(0,v)); };
+    const median = arr => { const a=asArray(arr).map(Number).filter(n=>Number.isFinite(n)).sort((x,y)=>x-y); if(!a.length) return 0; const m=Math.floor(a.length/2); return a.length%2? a[m] : (a[m-1]+a[m])/2; };
+    const iqr = arr => { const a=asArray(arr).map(Number).filter(n=>Number.isFinite(n)).sort((x,y)=>x-y); if(a.length<4) return Math.max(1e-9, stdev(a)); const q=p=>{const pos=(a.length-1)*p; const b=Math.floor(pos); const r=pos-b; return a[b]+r*(a[Math.min(b+1,a.length-1)]-a[b]);}; return Math.max(1e-9, q(0.75)-q(0.25)); };
+    const safeMinMax = arr => { const a=asArray(arr); if(!a.length) return {min:0,max:0}; let min=a[0], max=a[0]; for(let i=1;i<a.length;i++){ if(a[i]<min)min=a[i]; if(a[i]>max)max=a[i]; } return {min,max}; };
+
+    // 線形回帰（x=1..n）: slope, intercept, se
+    function linreg(arr){
+      const y=asArray(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0, intercept:mean(y), se:0};
+      const x=Array.from({length:n},(_,i)=>i+1); const mx=mean(x), my=mean(y);
+      const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)**2,0);
+      const slope=den===0?0:num/den; const intercept=my-slope*mx;
+      const residuals=y.map((yi,i)=>yi-(slope*x[i]+intercept)); const sse=residuals.reduce((a,b)=>a+b*b,0);
+      const se=Math.sqrt(Math.max(0, sse/Math.max(1,n-2)));
+      return {slope, intercept, se};
+    }
+
+    // 参入障壁：昨期ROE[%]/3 + 5年傾き/10
+    function calcBarrierScore(roeArray){
+      const arr=asArray(roeArray); if(arr.length<5) return 0;
+      const lastRoePct = Number.isFinite(arr[4]) ? arr[4] : 0;
+      const slopePctPerYear = linreg(arr).slope;
+      return lastRoePct/3 + slopePctPerYear/10;
+    }
+
+    // 価格取得：Vercel API →（必要ならバックアップ）Stooq
+    async function fetchQuote(ticker){
+      if(!ticker) return {price:null, source:null};
+      const tk=String(ticker).trim();
+      // hosted API
+      try{
+        const r=await fetch(`${QUOTE_API}?ticker=${encodeURIComponent(tk)}`);
+        if(r.ok){ const j=await r.json(); const px=Number(j.price ?? j.c ?? j.close ?? j.last); if(Number.isFinite(px)) return {price:px, source:`api(${j.source||'hosted'})`}; }
+      }catch{}
+      // stooq backup
+      try{
+        let s=tk.toLowerCase(); if(s.endsWith('.t')) s=s.replace(/\.t$/,'.jp');
+        const r=await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`);
+        if(!r.ok) throw 0;
+        const text=await r.text(); const lines=text.trim().split(/\r?\n/); if(lines.length<2) throw 0;
+        const head=lines[0].split(','), row=lines[1].split(','); const idx=head.findIndex(h=>h.toLowerCase()==='close');
+        const close=idx>=0? Number(row[idx]) : Number(row[row.length-2]); if(Number.isFinite(close)) return {price:close, source:'stooq'};
+      }catch{}
+      return {price:null, source:null};
+    }
+
+    // ---- React App ----
+    const {useEffect,useMemo,useState} = React;
+
+    function CompanyLists({ dataset }){
+      const list = useMemo(()=>{
+        // 各社のスコアを計算（一覧用）
+        const s1s = dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return lr.slope/m;});
+        const s2s = dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return lr.se/m;});
+        const med1=median(s1s), i1=iqr(s1s);
+        const rzArr = i1===0? s1s.map(()=>0.5) : s1s.map(x=>(x-med1)/i1);
+        const {min:min1,max:max1}=safeMinMax(rzArr);
+        const invs = s2s.map(x=>1/Math.max(1e-9,x));
+        const {min:min2,max:max2}=safeMinMax(invs);
+
+        return dataset.map((row,idx)=>{
+          const lr=linreg(row.op||[]), m=Math.max(1e-9, mean(row.op||[]));
+          const slopeDiv=lr.slope/m, seDiv=lr.se/m;
+          const rz = i1===0?0.5:(slopeDiv-med1)/i1;
+          const growthScore = (max1-min1===0?0.5:(rz-min1)/(max1-min1))*100;
+          const breScore = (max2-min2===0?0.5:((1/Math.max(1e-9,seDiv))-min2)/(max2-min2))*100;
+          const opTrend = ((growthScore+breScore)/2)*0.15;       // 0..15
+          const fund = asArray(row.fcf).filter(x=> (Number(x)||0)>0).length; // 0..5
+          const barrier = calcBarrierScore(row.roe||[]);
+          const investScore = opTrend + fund + barrier;
+          const label = investScore<8?"売るべき企業": investScore<10?"様子見企業": investScore<12?"よい企業":"すばらしい企業";
+          return { id: row.id, name: row.name, price: row.price, investScore, label };
+        });
+      },[dataset]);
+
+      const great = useMemo(()=>list.filter(r=>r.investScore>=12).sort((a,b)=>b.investScore-a.investScore),[list]);
+      const good  = useMemo(()=>list.filter(r=>r.investScore>=10 && r.investScore<12).sort((a,b)=>b.investScore-a.investScore),[list]);
+
+      const Row = ({r}) => (
+        <div class="grid4 rowline">
+          <div class="truncate">{r.name}</div>
+          <div>{r.investScore.toFixed(2)}</div>
+          <div>{prettyNum(r.price)}</div>
+          <div>{r.label}</div>
+        </div>
+      );
+
+      return (
+        React.createElement(React.Fragment,null,
+          React.createElement('div',{className:'row g2'},
+            React.createElement('div',{className:'card'},
+              React.createElement('div',{className:'head'},
+                React.createElement('div',null,'すばらしい企業（スコア≧12）'),
+              ),
+              React.createElement('div',{className:'grid4 muted',style:{marginBottom:'6px'}},
+                React.createElement('div',null,'社名'),
+                React.createElement('div',null,'投資スコア'),
+                React.createElement('div',null,'現在株価'),
+                React.createElement('div',null,'割安度判定')
+              ),
+              great.length? great.map(r=>React.createElement(Row,{key:r.id,r})) :
+                React.createElement('div',{className:'muted'},'該当なし')
+            ),
+            React.createElement('div',{className:'card'},
+              React.createElement('div',{className:'head'},
+                React.createElement('div',null,'よい企業（10≦スコア＜12）'),
+              ),
+              React.createElement('div',{className:'grid4 muted',style:{marginBottom:'6px'}},
+                React.createElement('div',null,'社名'),
+                React.createElement('div',null,'投資スコア'),
+                React.createElement('div',null,'現在株価'),
+                React.createElement('div',null,'割安度判定')
+              ),
+              good.length? good.map(r=>React.createElement(Row,{key:r.id,r})) :
+                React.createElement('div',{className:'muted'},'該当なし')
+            )
+          )
+        )
+      );
+    }
+
+    function App(){
+      // メタと系列
+      const [meta,setMeta] = useState({name:"",ticker:"",sector:""});
+      const [op,setOp] = useState([0,0,0,0,0]);
+      const [fcf,setFcf] = useState([0,0,0,0,0]);
+      const [roe,setRoe] = useState([0,0,0,0,0]);
+      const [price,setPrice] = useState(0);
+      const [shares,setShares] = useState(0);
+      const [opPrev,setOpPrev] = useState(0);
+      const [opThis,setOpThis] = useState(0);
+      const [opNext,setOpNext] = useState(0);
+
+      // データセット・検索
+      const [dataset,setDataset] = useState([]);
+      const [searchQ,setSearchQ] = useState("");
+      const yearLabels=[2021,2022,2023,2024,2025];
+
+      // Excel 読み込み
+      async function handleExcel(e){
+        const file=e.target.files?.[0]; if(!file) return;
+        const data=await file.arrayBuffer(); const wb=XLSX.read(data,{type:"array"});
+        const wsName = wb.SheetNames.includes("information") ? "information" : wb.SheetNames[0];
+        const ws=wb.Sheets[wsName]; const json=XLSX.utils.sheet_to_json(ws,{defval:null});
+        const rows = asArray(json).map((r,idx)=>{
+          const opHist5  = yearLabels.map(y=>toNum(r[`Op_${y}`]));
+          const fcfHist5 = yearLabels.map(y=>toNum(r[`FCF_${y}`]));
+          const roeHist5 = yearLabels.map(y=>parsePercentCell(r[`ROE_${y}`]));
+          return {
+            id: idx+1,
+            name: r.company ?? r.Company ?? "",
+            ticker: String(r.ticker ?? r.Ticker ?? ""),
+            sector: r["業種"] ?? "",
+            price: toNum(r.price ?? r.Price ?? 0),
+            shares: toNum(r.share ?? r.Shares ?? 0),
+            op: opHist5,
+            fcf: fcfHist5,
+            roe: roeHist5,
+            opPrev: toNum(r[`Op_2025`]),
+            opThis: toNum(r[`Op_2026`]),
+            opNext: toNum(r[`Op_2027`]),
+          }
+        }).filter(r=>String(r.name||"").trim()!=="");
+        setDataset(rows);
+        if(rows.length) applyRow(rows[0]);
+      }
+
+      function applyRow(row){
+        setMeta({name:row.name??"", ticker:(row.ticker??"").toString(), sector:row.sector??""});
+        setOp(asArray(row.op)); setFcf(asArray(row.fcf)); setRoe(asArray(row.roe));
+        setPrice(toNum(row.price)); setShares(toNum(row.shares));
+        setOpPrev(toNum(row.opPrev)); setOpThis(toNum(row.opThis)); setOpNext(toNum(row.opNext));
+      }
+
+      // 検索（部分一致で先頭をフォームへ）
+      const datasetFiltered = useMemo(()=>{
+        const q=(searchQ||"").toLowerCase(); return asArray(dataset).filter(r=>(r?.name||"").toLowerCase().includes(q));
+      },[dataset,searchQ]);
+      useEffect(()=>{ if((searchQ||"").trim().length===0) return; if(datasetFiltered.length) applyRow(datasetFiltered[0]); },[searchQ,datasetFiltered]);
+
+      // 価格自動取得（表示中の1社だけ）
+      useEffect(()=>{
+        const tk=(meta.ticker??"").toString().trim(); if(!tk) return;
+        let cancelled=false; const timer=setTimeout(async ()=>{
+          const {price:px}=await fetchQuote(tk); if(!cancelled && px!==null) setPrice(px);
+        },300);
+        return ()=>{cancelled=true; clearTimeout(timer);};
+      },[meta.ticker]);
+
+      // ------- 指標計算（フォーム上の会社） -------
+      const opReg=linreg(op); const opMean=Math.max(1e-9, mean(op));
+      const slopeDiv=opReg.slope/opMean; const seDiv=opReg.se/opMean;
+
+      const cohort = useMemo(()=>{
+        if(!dataset.length) return null;
+        const s1s = dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return lr.slope/m;});
+        const s2sInv = dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return 1/Math.max(1e-9, lr.se/m);});
+        const med1=median(s1s), i1=iqr(s1s);
+        const rzArr = i1===0? s1s.map(()=>0.5) : s1s.map(x=>(x-med1)/i1);
+        const {min:min1,max:max1}=safeMinMax(rzArr);
+        const {min:min2,max:max2}=safeMinMax(s2sInv);
+        return {med1,i1,min1,max1,min2,max2};
+      },[dataset]);
+
+      const growthScore = useMemo(()=>{
+        if(!cohort) return 50; const rz=cohort.i1===0?0.5:(slopeDiv-cohort.med1)/cohort.i1;
+        return clamp((cohort.max1-cohort.min1===0?0.5:(rz-cohort.min1)/(cohort.max1-cohort.min1))*100,0,100);
+      },[cohort,slopeDiv]);
+
+      const breScore = useMemo(()=>{
+        if(!cohort) return 50; const inv=1/Math.max(1e-9,seDiv);
+        return clamp((cohort.max2-cohort.min2===0?0.5:(inv-cohort.min2)/(cohort.max2-cohort.min2))*100,0,100);
+      },[cohort,seDiv]);
+
+      const opTrendScore = ((growthScore+breScore)/2)*0.15; // 0..15
+      const fundGenScore = asArray(fcf).filter(x=>(Number(x)||0)>0).length; // 0..5
+      const barrierScore = calcBarrierScore(roe);
+      const investScore = opTrendScore + fundGenScore + barrierScore;
+      const investLabel = investScore<8?"売るべき企業": investScore<10?"様子見企業": investScore<12?"よい企業":"すばらしい企業";
+      const investBadge = investScore<8? "b-bad" : investScore<10? "b-watch" : investScore<12? "b-good" : "b-great";
+
+      // r,g 標準化（cohort全体）
+      const seRels = dataset.length ? dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return lr.se/m;}) : [seDiv];
+      const muSe=mean(seRels), sdSe=Math.max(1e-9, stdev(seRels));
+      const seStd=(seDiv-muSe)/sdSe; const r=(seStd+7)/100;
+
+      const slopeRels = dataset.length ? dataset.map(r=>{const lr=linreg(r.op||[]); const m=Math.max(1e-9, mean(r.op||[])); return lr.slope/m;}) : [slopeDiv];
+      const muSlope=mean(slopeRels), sdSlope=Math.max(1e-9, stdev(slopeRels));
+      const slopeStd=(slopeDiv-muSlope)/sdSlope; const gN=(slopeStd+2.5)/100;
+
+      // g（来期が無ければ今期/前期 -1）
+      const g = useMemo(()=>{ if(opNext>0 && opPrev>0) return Math.sqrt(opNext/opPrev)-1; if(opThis>0 && opPrev>0) return opThis/opPrev -1; return 0; },[opPrev,opThis,opNext]);
+
+      const op5 = opPrev * Math.pow(1+g,5); const ni5=0.65*op5; const denom=Math.max(1e-6, r-gN);
+      const tv5 = ni5 * (1+gN) / denom; const pv = tv5 / Math.pow(1+r,5);
+      const targetPrice = shares>0 ? pv/shares : 0;
+      const ratio = price>0 ? targetPrice/price : 0;
+      const valueLabel = ratio>=2?"買い": ratio>=1?"中立":"売り";
+      const vBadge = ratio>=2? "b-buy" : ratio>=1? "b-hold" : "b-sell";
+
+      // UI小物
+      const Num = ({v,on}) => React.createElement('input',{type:'number',inputMode:'decimal',value:(v===0?0:(v??"")),onChange:e=>on(numberOrEmpty(e.target.value))});
+      const Pct = ({v,on}) => React.createElement('div',{style:{position:'relative'}},
+        React.createElement('input',{type:'number',inputMode:'decimal',value:(v===0?0:(v??"")),onChange:e=>on(numberOrEmpty(e.target.value)),style:{paddingRight:'28px'}}),
+        React.createElement('span',{style:{position:'absolute',right:'8px',top:'50%',transform:'translateY(-50%)',color:'#64748b'}},'%')
+      );
+
+      return React.createElement('div',{className:'wrap'},
+        React.createElement('div',{className:'head'},
+          React.createElement('div',null,
+            React.createElement('h1',null,'株式評価ミニアプリ'),
+            React.createElement('div',{className:'sub'},'Excel読込＋検索反映／一覧（常に全件）＋株価自動取得。金額は億円、ROEは%。参入障壁は「昨期ROE[%]/3 + 5年傾き/10」。')
+          ),
+          React.createElement('div',{className:'row',style:{gridTemplateColumns:'auto auto auto',gap:'8px'}},
+            React.createElement('input',{type:'text',placeholder:'企業名で検索（部分一致）',value:searchQ,onChange:e=>setSearchQ(e.target.value)}),
+            React.createElement('input',{type:'file',accept:'.xlsx,.xls',onChange:handleExcel}),
+            React.createElement('button',{className:'btn',onClick:async()=>{const {price:px}=await fetchQuote((meta.ticker??"").toString().trim()); if(px!==null) setPrice(px);}},'価格更新')
+          )
+        ),
+
+        // フォーム
+        React.createElement('div',{className:'row g3',style:{marginTop:'16px'}},
+          React.createElement('div',{className:'card'},
+            React.createElement('div',{className:'row'}, 
+              React.createElement('input',{type:'text',placeholder:'企業名',value:meta.name,onChange:e=>setMeta({...meta,name:e.target.value})}),
+              React.createElement('input',{type:'text',placeholder:'ティッカー（例 7203.T）',value:meta.ticker,onChange:e=>setMeta({...meta,ticker:e.target.value})}),
+              React.createElement('input',{type:'text',placeholder:'業種（任意）',value:meta.sector,onChange:e=>setMeta({...meta,sector:e.target.value})})
+            ),
+            React.createElement('div',{className:'row g2',style:{marginTop:'12px'}},
+              React.createElement('div',null,
+                React.createElement('div',{className:'muted',style:{marginBottom:'6px'}},'過去5年 営業利益（億円）'),
+                React.createElement('div',{className:'row g5 muted',style:{marginBottom:'4px'}}, ...[2021,2022,2023,2024,2025].map(y=>React.createElement('div',{key:y,style:{textAlign:'center'}},y))),
+                React.createElement('div',{className:'row g5'}, asArray(op).map((v,i)=>React.createElement(Num,{key:i,v,on:nv=>setOp(a=>asArray(a).map((x,j)=>i===j?nv:x))})))
+              ),
+              React.createElement('div',null,
+                React.createElement('div',{className:'muted',style:{marginBottom:'6px'}},'過去5年 FCF（億円）'),
+                React.createElement('div',{className:'row g5 muted',style:{marginBottom:'4px'}}, ...[2021,2022,2023,2024,2025].map(y=>React.createElement('div',{key:y,style:{textAlign:'center'}},y))),
+                React.createElement('div',{className:'row g5'}, asArray(fcf).map((v,i)=>React.createElement(Num,{key:i,v,on:nv=>setFcf(a=>asArray(a).map((x,j)=>i===j?nv:x))})))
+              ),
+              React.createElement('div',null,
+                React.createElement('div',{className:'muted',style:{marginBottom:'6px'}},'過去5年 ROE'),
+                React.createElement('div',{className:'row g5 muted',style:{marginBottom:'4px'}}, ...[2021,2022,2023,2024,2025].map(y=>React.createElement('div',{key:y,style:{textAlign:'center'}},y))),
+                React.createElement('div',{className:'row g5'}, asArray(roe).map((v,i)=>React.createElement(Pct,{key:i,v,on:nv=>setRoe(a=>asArray(a).map((x,j)=>i===j?nv:x))})))
+              )
+            ),
+            React.createElement('div',{className:'row g3',style:{marginTop:'12px'}},
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'株価（円）'), React.createElement(Num,{v:price,on:setPrice}), meta.ticker? React.createElement('div',{className:'muted',style:{marginTop:'6px'}}, React.createElement('a',{className:'link',href:`https://finance.yahoo.co.jp/quote/${encodeURIComponent(String(meta.ticker).trim())}`,target:'_blank',rel:'noreferrer'},'Yahooで見る')):null),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'普通株式数（株）'), React.createElement(Num,{v:shares,on:setShares})),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'前期OP（億円）'), React.createElement(Num,{v:opPrev,on:setOpPrev})),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'今期OP予想（億円）'), React.createElement(Num,{v:opThis,on:setOpThis})),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'来期OP予想（億円 任意）'), React.createElement(Num,{v:opNext,on:setOpNext}))
+            )
+          ),
+
+          // 投資スコア
+          React.createElement('div',{className:'card'},
+            React.createElement('div',{className:'head'},
+              React.createElement('div',null,'投資スコア（魅力度の合計）'),
+              React.createElement('span',{className:`badge ${investBadge}`}, investLabel)
+            ),
+            React.createElement('div',{style:{fontSize:'36px',fontWeight:700,marginBottom:'6px'}}, investScore.toFixed(2)),
+            React.createElement('div',{className:'muted'}, `営業トレンド ${opTrendScore.toFixed(2)} / 資金創出 ${fundGenScore.toFixed(2)} / 参入障壁 ${barrierScore.toFixed(2)}`)
+          ),
+
+          // 割安度
+          React.createElement('div',{className:'card'},
+            React.createElement('div',{className:'head'},
+              React.createElement('div',null,'割安度（目標株価と比較）'),
+              React.createElement('span',{className:`badge ${vBadge}`}, valueLabel)
+            ),
+            React.createElement('div',{className:'row g2'},
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'年平均成長率 g'), React.createElement('div',{style:{fontSize:'20px',fontWeight:600}}, prettyPct(g))),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'期待収益率 r'), React.createElement('div',{style:{fontSize:'20px',fontWeight:600}}, prettyPct(r))),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'成長率（標準化）'), React.createElement('div',{style:{fontSize:'20px',fontWeight:600}}, prettyPct(gN))),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'目標株価'), React.createElement('div',{style:{fontSize:'20px',fontWeight:600}}, prettyNum(targetPrice))),
+              React.createElement('div',null, React.createElement('div',{className:'muted'},'現在株価'), React.createElement('div',{style:{fontSize:'20px',fontWeight:600}}, prettyNum(price)))
+            ),
+            React.createElement('div',{className:'muted',style:{marginTop:'6px'}}, '注：r=(標準化SE+7)/100、g=(標準化傾き+2.5)/100。5年後OPは前期OP×(1+g)^5。参入障壁は 昨期ROE[%]/3 + 5年傾き/10。')
+          )
+        ),
+
+        // すばらしい企業・よい企業（常時表示）
+        React.createElement('div',{style:{marginTop:'16px'}},
+          React.createElement(CompanyLists,{dataset})
+        ),
+
+        // 補足
+        React.createElement('div',{className:'card',style:{marginTop:'16px'}},
+          React.createElement('div',{className:'muted'},'金額はすべて億円、ROEは%。営業トレンドは slope(OP)/avg(OP) を median–IQR でロバスト化→min–max、ブレは (SE/avg(OP)) の逆数で min–max。')
+        )
+      );
+    }
+
+    window.addEventListener('DOMContentLoaded',()=>{
+      const root = document.getElementById('app');
+      ReactDOM.createRoot(root).render(React.createElement(App));
+    });
+  </script>
+</head>
+<body>
+  <div id="app" class="wrap">読み込み中…</div>
+</body>
+</html>
