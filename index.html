@@ -3,62 +3,108 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>stock-ev / 最小アプリ</title>
+  <title>株式評価ミニ（フェーズ2）</title>
   <style>
-    :root{--fg:#0f172a;--sub:#64748b;--bg:#f8fafc;--card:#fff;--ok:#059669;--ng:#dc2626;}
-    *{box-sizing:border-box} body{margin:0;font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--fg); background:var(--bg)}
-    .wrap{max-width:1000px;margin:28px auto;padding:16px}
+    :root{--fg:#0f172a;--sub:#64748b;--bg:#f8fafc;--card:#fff}
+    *{box-sizing:border-box} body{margin:0;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--fg);background:var(--bg)}
+    .wrap{max-width:1100px;margin:28px auto;padding:16px}
     .card{background:var(--card);border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.05);padding:16px}
     h1{margin:0 0 12px} small{color:var(--sub)}
-    .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-    input[type="text"], input[type="number"]{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px}
+    .row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+    input[type="text"],input[type="number"]{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px}
     button{appearance:none;border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:10px 14px;cursor:pointer}
     button.primary{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
     .mt{margin-top:12px} .muted{color:var(--sub);font-size:13px}
-    pre{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);overflow:auto}
-    .ok{color:var(--ok)} .ng{color:var(--ng)}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .kpi{padding:12px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
     .kpi .lbl{color:var(--sub);font-size:12px} .kpi .val{font-size:22px;font-weight:600}
+    .pill{display:inline-block;border-radius:999px;padding:2px 10px;color:#fff;font-weight:600}
+    .pill.buy{background:#059669}.pill.hold{background:#f59e0b}.pill.sell{background:#e11d48}
+    pre{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);overflow:auto}
+    .secTitle{font-weight:600;margin:8px 0 6px}
   </style>
 
-  <!-- ライブラリ（相対パス / vendor 配下 / defer） -->
+  <!-- ライブラリ -->
   <script src="vendor/react.production.min.js" defer></script>
   <script src="vendor/react-dom.production.min.js" defer></script>
   <script src="vendor/xlsx.full.min.js" defer></script>
 
   <script>
-    // 画面にも出すエラーハンドラ
     window.onerror = (m, s, l, c, e) => {
       const msg = (e && (e.stack || e.message)) || m;
       const box = document.getElementById('errors'); if (box) {
-        box.innerHTML = '<div class="ng"><b>初期化エラー</b><pre>'+msg+'</pre></div>';
+        box.innerHTML = '<div style="color:#dc2626"><b>初期化エラー</b><pre>'+msg+'</pre></div>';
       }
     };
     window.onunhandledrejection = e => {
       const msg = (e && e.reason && (e.reason.stack || e.reason.message)) || String(e.reason || e);
       const box = document.getElementById('errors'); if (box) {
-        box.innerHTML = '<div class="ng"><b>非同期エラー</b><pre>'+msg+'</pre></div>';
+        box.innerHTML = '<div style="color:#dc2626"><b>非同期エラー</b><pre>'+msg+'</pre></div>';
       }
     };
 
     document.addEventListener('DOMContentLoaded', () => {
-      const { createElement: h, useState, useEffect } = React;
+      const { createElement: h, useState, useEffect, useMemo, useRef } = React;
 
-      // API（あなたの Vercel API）に合わせて変更可
+      /* ---------- ユーティリティ ---------- */
+      const asArray = v => Array.isArray(v) ? v : [];
+      const clamp = (x, lo=0, hi=100) => Math.max(lo, Math.min(hi, x));
+      const mean = a => { const b = asArray(a).map(Number).filter(Number.isFinite); return b.length ? b.reduce((s,v)=>s+v,0)/b.length : 0; };
+      const stdev = a => { const b = asArray(a).map(Number).filter(Number.isFinite); const m=mean(b); const v=b.length? b.reduce((s,x)=>s+(x-m)**2,0)/b.length : 0; return Math.sqrt(Math.max(0,v)); };
+
+      // 5年線形回帰（x=1..n）
+      const linreg = a => {
+        const y=asArray(a).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:mean(y),se:0};
+        const x=Array.from({length:n},(_,i)=>i+1); const mx=mean(x), my=mean(y);
+        const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)**2,0);
+        const slope=den===0?0:num/den; const intercept=my-slope*mx;
+        const residuals=y.map((yi,i)=>yi-(slope*x[i]+intercept));
+        const sse=residuals.reduce((a,b)=>a+b*b,0); const se=Math.sqrt(Math.max(0, sse/Math.max(1,n-2)));
+        return {slope,intercept,se};
+      };
+
+      // 参入障壁: 昨期ROE[%]/3 + 5年傾き/10
+      const barrierScore = roeArr => {
+        const a=asArray(roeArr); if(a.length<5) return 0;
+        const last = Number.isFinite(a[4]) ? a[4] : 0;
+        const slope = linreg(a).slope; // %/年
+        return last/3 + slope/10;
+      };
+
+      /* ---------- 価格取得（前回の多段フォールバック） ---------- */
       const QUOTE_API = 'https://stock-quote-api-opal.vercel.app/api/quote';
+      const normalizeTicker = (tk) => /^\d{4}$/.test(String(tk||'').trim()) ? String(tk).trim()+'.T' : String(tk||'').trim();
+      const fromYahoo = j => {
+        const q=j?.quoteResponse?.result?.[0];
+        const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
+        return Number.isFinite(px)?px:null;
+      };
+      const stooqUrl = (tk) => { let s=String(tk||'').toLowerCase(); if(s.endsWith('.t')) s=s.replace(/\.t$/,'.jp'); return `https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`; };
 
-      async function fetchQuote(ticker){
-        if(!ticker) return { price:null, source:null };
-        try{
-          const r = await fetch(`${QUOTE_API}?ticker=${encodeURIComponent(ticker)}`);
-          if(!r.ok) throw new Error('api '+r.status);
-          const j = await r.json();
-          const px = Number(j.price ?? j.regularMarketPrice ?? j.c ?? j.last ?? j.close);
-          return Number.isFinite(px) ? { price:px, source:j.source||'api' } : { price:null, source:null };
-        }catch(e){ return { price:null, source:null }; }
+      async function fetchQuoteAny(ticker){
+        const tk = normalizeTicker(ticker);
+        try{ // 1) Hosted
+          const r = await fetch(`${QUOTE_API}?ticker=${encodeURIComponent(tk)}`); if(!r.ok) throw 0;
+          const j = await r.json(); const px=Number(j.price ?? j.regularMarketPrice ?? j.c ?? j.last ?? j.close);
+          if(Number.isFinite(px)) return {price:px, source:`api(${j.source||'?'})`};
+        }catch(_){}
+        try{ // 2) Yahoo
+          const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tk)}`); if(!r.ok) throw 0;
+          const j=await r.json(); const px=fromYahoo(j); if(px!==null) return {price:px, source:'yahoo'};
+        }catch(_){}
+        try{ // 3) Stooq
+          const r=await fetch(stooqUrl(tk)); if(!r.ok) throw 0;
+          const text=await r.text(); const lines=text.trim().split(/\r?\n/); if(lines.length>=2){
+            const head=lines[0].split(','), row=lines[1].split(','); const idx=head.findIndex(h=>h.toLowerCase()==='close');
+            const close=idx>=0? Number(row[idx]) : Number(row[row.length-2]); if(Number.isFinite(close)) return {price:close, source:'stooq'};
+          }
+        }catch(_){}
+        return {price:null, source:null};
       }
 
+      /* ---------- アプリ ---------- */
       function App(){
         const [name, setName] = useState('トヨタ自動車');
         const [ticker, setTicker] = useState('7203.T');
@@ -66,67 +112,166 @@
         const [src, setSrc] = useState('');
         const [shares, setShares] = useState(0);
         const [log, setLog] = useState([]);
+        const debounceRef = useRef(null);
 
-        // 価格取得
-        const getPrice = async () => {
-          setLog(l=>['fetch '+ticker, ...l]);
-          const { price:px, source } = await fetchQuote(ticker.trim());
-          if(px!==null){ setPrice(px); setSrc(source); setLog(l=>[`OK ${px} (${source})`, ...l]); }
-          else{ setLog(l=>['NG price=null', ...l]); alert('価格取得に失敗しました'); }
+        // 5年データ（億円 / ROE=%）
+        const years=[2021,2022,2023,2024,2025];
+        const [op, setOp]   = useState([0,0,0,0,0]);
+        const [fcf, setFcf] = useState([0,0,0,0,0]);
+        const [roe, setRoe] = useState([0,0,0,0,0]);
+        const [opPrev, setOpPrev] = useState(0); // 前期
+        const [opThis, setOpThis] = useState(0); // 今期予想
+        const [opNext, setOpNext] = useState(0); // 来期予想（任意）
+
+        const logPush = s => setLog(l=>[s,...l].slice(0,200));
+
+        const getPrice = async (tkOverride)=>{
+          const tk = normalizeTicker(tkOverride ?? ticker);
+          logPush('fetch '+tk);
+          const {price:px, source} = await fetchQuoteAny(tk);
+          if(px!==null){ setPrice(px); setSrc(source||''); logPush(`OK ${px} (${source||'?'})`); }
+          else { logPush('NG price=null'); alert('価格取得に失敗しました'); }
         };
 
-        // Excel 読込（information シートを想定、Ticker/Price/Shares 列があれば拾う簡易実装）
+        // ティッカー自動取得
+        useEffect(()=>{
+          if(debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current=setTimeout(()=>getPrice(ticker), 400);
+          return ()=>{ if(debounceRef.current) clearTimeout(debounceRef.current); };
+        }, [ticker]);
+
+        // Excel 読込（information シート優先）
         const onExcel = async (ev)=>{
-          const f = ev.target.files?.[0]; if(!f) return;
-          const buf = await f.arrayBuffer();
-          const wb = XLSX.read(buf, { type:'array' });
-          const wsName = wb.SheetNames.includes('information') ? 'information' : wb.SheetNames[0];
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { defval:null });
+          const f=ev.target.files?.[0]; if(!f) return;
+          const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'});
+          const wsName=wb.SheetNames.includes('information')?'information':wb.SheetNames[0];
+          const rows=XLSX.utils.sheet_to_json(wb.Sheets[wsName],{defval:null});
           if(Array.isArray(rows) && rows.length){
-            const r0 = rows[0];
-            if(r0.Ticker || r0.ticker) setTicker(String(r0.Ticker ?? r0.ticker));
-            if(r0.Price || r0.price) setPrice(Number(r0.Price ?? r0.price)||0);
-            if(r0.Shares || r0.shares) setShares(Number(r0.Shares ?? r0.shares)||0);
-            setLog(l=>[`Excel loaded: ${wsName} / ${rows.length} rows`, ...l]);
+            const r0=rows[0];
+            if(r0.Ticker||r0.ticker) setTicker(String(r0.Ticker ?? r0.ticker));
+            if(r0.Price||r0.price) setPrice(Number(r0.Price ?? r0.price)||0);
+            if(r0.Shares||r0.shares) setShares(Number(r0.Shares ?? r0.shares)||0);
+            // 5年系列（列名は Op_2021 / FCF_2021 / ROE_2021 などを想定）
+            const getN = v => Number(v)||0;
+            setOp(years.map(y=>getN(r0[`Op_${y}`])));
+            setFcf(years.map(y=>getN(r0[`FCF_${y}`])));
+            setRoe(years.map(y=>{ const v=r0[`ROE_${y}`]; if(v==null) return 0; const s=String(v); return s.includes('%')? Number(s.replace('%','')) : Number(v)||0; }));
+            setOpPrev(getN(r0['Op_2025'])); setOpThis(getN(r0['Op_2026'])); setOpNext(getN(r0['Op_2027']));
+            logPush(`Excel loaded: ${wsName} / ${rows.length} rows`);
           }else{
-            setLog(l=>['Excel parse: no rows', ...l]);
+            logPush('Excel parse: no rows');
           }
         };
 
-        // 初回は自動で価格取得して見せる
-        useEffect(()=>{ getPrice(); /* 一度だけ */ },[]);
+        useEffect(()=>{ getPrice(ticker); }, []);
 
-        return h('div', { className:'wrap' },
-          h('h1', null, '株式評価ミニ（最小構成） ', h('small', null, 'React + XLSX + 価格API')),
-          h('div', { className:'card' },
-            h('div', { className:'row' },
-              h('div', null,
-                h('div', { className:'muted' }, '会社名'),
-                h('input', { type:'text', value:name, onChange:e=>setName(e.target.value) })
-              ),
-              h('div', null,
-                h('div', { className:'muted' }, 'ティッカー（例 7203.T）'),
-                h('input', { type:'text', value:ticker, onChange:e=>setTicker(e.target.value) })
-              ),
-              h('div', null,
-                h('div', { className:'muted' }, 'Excel 読込（任意）'),
-                h('input', { type:'file', accept:'.xlsx,.xls', onChange:onExcel })
-              ),
+        /* ---------- 指標計算 ---------- */
+        const opReg = useMemo(()=>linreg(op), [op]);
+        const opMean = useMemo(()=>Math.max(1e-9, mean(op)), [op]);
+        const slopeDiv = opReg.slope / opMean;        // 成長（相対）
+        const seDiv    = opReg.se    / opMean;        // ブレ（相対）
+        const growthScore = clamp((slopeDiv + 0.5) * 100, 0, 100); // 簡易: 単体会社なので 0〜100に射影
+        const breScore    = clamp((1/Math.max(1e-9,seDiv)) / 10 * 100, 0, 100); // 簡易スケール
+        const opTrendScore = ((growthScore + breScore)/2) * 0.15; // 0..15
+        const fundGenScore = asArray(fcf).filter(x => (Number(x)||0) > 0).length; // 0..5
+        const barrier = barrierScore(roe); // 0..?
+        const investScore = opTrendScore + fundGenScore + barrier;
+        const labelInvest = investScore<8?'売るべき企業': investScore<10?'様子見企業': investScore<12?'よい企業':'すばらしい企業';
+
+        // r, g, gN（単体スケーリングの簡易版）
+        const r = ( ( (seDiv - 0) / Math.max(1e-9, stdev([seDiv,0,0.05])) ) + 7 ) / 100; // ≒7%付近
+        const gN = ( ( (slopeDiv - 0) / Math.max(1e-9, stdev([slopeDiv,0,0.02])) ) + 2.5 ) / 100;
+
+        const g = useMemo(()=>{
+          if(opNext>0 && opPrev>0) return Math.sqrt(opNext/opPrev)-1;
+          if(opThis>0 && opPrev>0) return opThis/opPrev-1;
+          return 0;
+        }, [opPrev, opThis, opNext]);
+
+        const op5 = opPrev * Math.pow(1+g,5);
+        const ni5 = 0.65 * op5;
+        const denom = Math.max(1e-6, r - gN);
+        const tv5 = ni5 * (1 + gN) / denom;
+        const pv  = tv5 / Math.pow(1+r,5);
+        const targetPrice = (shares||0) > 0 ? pv / shares : 0;
+        const verdict = price>0 ? (targetPrice/price>=2?'buy': targetPrice/price>=1?'hold':'sell') : 'hold';
+
+        const fmt = x => Number.isFinite(x) ? Number(x).toLocaleString() : '-';
+        const pct = x => Number.isFinite(x) ? (x*100).toFixed(2)+'%' : '-';
+
+        /* ---------- UI ---------- */
+        const Num = ({v,onC,ph}) => h('input',{type:'number',value:(v===0?0:(v??'')),onChange:e=>onC(Number(e.target.value)||0),placeholder:ph});
+        const NumPct = ({v,onC,ph}) => h('input',{type:'number',value:(v===0?0:(v??'')),onChange:e=>onC(Number(e.target.value)||0),placeholder:ph});
+
+        return h('div',{className:'wrap'},
+          h('h1',null,'株式評価ミニ（最小構成 → フェーズ2） ',h('small',null,'React + XLSX + 価格API + 指標計算')),
+
+          // 基本カード
+          h('div',{className:'card'},
+            h('div',{className:'row'},
+              h('div',null, h('div',{className:'muted'},'会社名'), h('input',{type:'text',value:name,onChange:e=>setName(e.target.value)})),
+              h('div',null, h('div',{className:'muted'},'ティッカー（例 7203.T）'), h('input',{type:'text',value:ticker,onChange:e=>setTicker(e.target.value)})),
+              h('div',null, h('div',{className:'muted'},'Excel 読込（任意）'), h('input',{type:'file',accept:'.xlsx,.xls',onChange:onExcel}))
             ),
-            h('div', { className:'mt grid2' },
-              h('div', { className:'kpi' }, h('div', { className:'lbl' }, '現在株価'), h('div', { className:'val' }, price.toLocaleString())),
-              h('div', { className:'kpi' }, h('div', { className:'lbl' }, '普通株式数（任意）'), h('input', { type:'number', value:shares||'', onChange:e=>setShares(Number(e.target.value)||0) })),
+            h('div',{className:'mt grid2'},
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'現在株価'), h('div',{className:'val'}, fmt(price))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'普通株式数（任意）'), h('input',{type:'number',value:shares||'',onChange:e=>setShares(Number(e.target.value)||0)})),
             ),
-            h('div', { className:'mt' },
-              h('button', { className:'primary', onClick:getPrice }, '価格を更新'),
-              h('span', { className:'muted', style:{marginLeft:10}}, src ? `自動取得: ${src}` : ' ')
+            h('div',{className:'mt'},
+              h('button',{className:'primary',onClick:()=>getPrice(ticker)},'価格を更新'),
+              h('span',{className:'muted',style:{marginLeft:10}}, src?`自動取得: ${src}`:' ')
             ),
-            h('div', { id:'errors', className:'mt' })
+            h('div',{id:'errors',className:'mt'})
           ),
 
-          h('div', { className:'card mt' },
-            h('div', { className:'muted' }, 'ログ（新しい順）'),
-            h('pre', null, log.join('\n')||'(なし)')
+          // 5年入力
+          h('div',{className:'card mt'},
+            h('div',{className:'secTitle'},'過去5年 営業利益（億円）'),
+            h('div',{className:'muted'}, years.map(y=>h('span',{style:{width:60,display:'inline-block',textAlign:'center'}}, y))),
+            h('div',{className:'grid5 mt'}, years.map((y,i)=>h(Num,{key:i,v:op[i],onC:n=>setOp(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+
+            h('div',{className:'secTitle mt'},'過去5年 FCF（億円）'),
+            h('div',{className:'grid5'}, years.map((y,i)=>h(Num,{key:i,v:fcf[i],onC:n=>setFcf(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+
+            h('div',{className:'secTitle mt'},'過去5年 ROE（%）'),
+            h('div',{className:'grid5'}, years.map((y,i)=>h(NumPct,{key:i,v:roe[i],onC:n=>setRoe(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+
+            h('div',{className:'secTitle mt'},'OP（前期/今期/来期 予想）'),
+            h('div',{className:'grid3'},[
+              h('div',null,h('div',{className:'muted'},'前期OP'), h(Num,{v:opPrev,onC:setOpPrev})),
+              h('div',null,h('div',{className:'muted'},'今期OP予想'), h(Num,{v:opThis,onC:setOpThis})),
+              h('div',null,h('div',{className:'muted'},'来期OP予想（任意）'), h(Num,{v:opNext,onC:setOpNext})),
+            ]),
+          ),
+
+          // 投資スコア
+          h('div',{className:'card mt'},
+            h('div',{className:'grid3'},
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'投資スコア'), h('div',{className:'val'}, investScore.toFixed(2)), h('div',{className:'muted'}, `営業トレンド ${opTrendScore.toFixed(2)} / 資金創出 ${fundGenScore.toFixed(2)} / 参入障壁 ${barrier.toFixed(2)}`)),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'営業成長（相対）'), h('div',{className:'val'}, slopeDiv.toFixed(4))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'ブレ（相対SE）'), h('div',{className:'val'}, seDiv.toFixed(4))),
+            ),
+          ),
+
+          // 割安度
+          h('div',{className:'card mt'},
+            h('div',{className:'grid3'},
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'g（年平均成長率）'), h('div',{className:'val'}, pct(g))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'r（期待収益率）'), h('div',{className:'val'}, pct(r))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'gN（標準化成長）'), h('div',{className:'val'}, pct(gN))),
+            ),
+            h('div',{className:'grid3 mt'},
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'目標株価'), h('div',{className:'val'}, fmt(targetPrice))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'現在株価'), h('div',{className:'val'}, fmt(price))),
+              h('div',{className:'kpi'}, h('div',{className:'lbl'},'判定'), h('div',{className:'val'}, h('span',{className:`pill ${verdict==='buy'?'buy':verdict==='sell'?'sell':'hold'}`}, verdict==='buy'?'買い': verdict==='sell'?'売り':'中立'))),
+            ),
+            h('div',{className:'muted mt'},'注: r=(標準化SE+7)/100、gN=(標準化傾き+2.5)/100 は簡易版スケーリング。参入障壁=昨期ROE[%]/3 + 5年傾き/10。'),
+          ),
+
+          // ログ
+          h('div',{className:'card mt'},
+            h('div',{className:'muted'},'ログ（新しい順）'),
+            h('pre',null, log.join('\n')||'(なし)')
           )
         );
       }
@@ -140,4 +285,3 @@
   <div id="app" class="wrap">読み込み中…</div>
 </body>
 </html>
-
