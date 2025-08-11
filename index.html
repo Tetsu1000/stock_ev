@@ -3,76 +3,141 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>診断版 / stock-ev</title>
+  <title>stock-ev / 最小アプリ</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #f8fafc; }
-    .wrap { max-width: 900px; margin: 28px auto; padding: 16px; }
-    pre { background:#fff; padding:12px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05); overflow:auto }
-    .ok { color:#059669 } .ng { color:#dc2626 }
+    :root{--fg:#0f172a;--sub:#64748b;--bg:#f8fafc;--card:#fff;--ok:#059669;--ng:#dc2626;}
+    *{box-sizing:border-box} body{margin:0;font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--fg); background:var(--bg)}
+    .wrap{max-width:1000px;margin:28px auto;padding:16px}
+    .card{background:var(--card);border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.05);padding:16px}
+    h1{margin:0 0 12px} small{color:var(--sub)}
+    .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    input[type="text"], input[type="number"]{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px}
+    button{appearance:none;border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:10px 14px;cursor:pointer}
+    button.primary{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+    .mt{margin-top:12px} .muted{color:var(--sub);font-size:13px}
+    pre{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);overflow:auto}
+    .ok{color:var(--ok)} .ng{color:var(--ng)}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kpi{padding:12px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+    .kpi .lbl{color:var(--sub);font-size:12px} .kpi .val{font-size:22px;font-weight:600}
   </style>
 
-  <!-- ライブラリ（相対パス / 先頭スラッシュなし / defer） -->
+  <!-- ライブラリ（相対パス / vendor 配下 / defer） -->
   <script src="vendor/react.production.min.js" defer></script>
   <script src="vendor/react-dom.production.min.js" defer></script>
   <script src="vendor/xlsx.full.min.js" defer></script>
 
   <script>
-    // 画面にログ出力
-    const push = (html) => {
-      const el = document.getElementById('log');
-      el.insertAdjacentHTML('beforeend', `<div>${html}</div>`);
+    // 画面にも出すエラーハンドラ
+    window.onerror = (m, s, l, c, e) => {
+      const msg = (e && (e.stack || e.message)) || m;
+      const box = document.getElementById('errors'); if (box) {
+        box.innerHTML = '<div class="ng"><b>初期化エラー</b><pre>'+msg+'</pre></div>';
+      }
+    };
+    window.onunhandledrejection = e => {
+      const msg = (e && e.reason && (e.reason.stack || e.reason.message)) || String(e.reason || e);
+      const box = document.getElementById('errors'); if (box) {
+        box.innerHTML = '<div class="ng"><b>非同期エラー</b><pre>'+msg+'</pre></div>';
+      }
     };
 
-    // すべてのエラーを画面へ
-    window.onerror = (msg, src, line, col, err) => {
-      push(`<div class="ng"><b>window.onerror</b><br><pre>${
-        (err && (err.stack || err.message)) || msg
-      }</pre></div>`);
-    };
-    window.onunhandledrejection = (e) => {
-      const err = e.reason || e;
-      push(`<div class="ng"><b>unhandledrejection</b><br><pre>${
-        (err && (err.stack || err.message)) || String(err)
-      }</pre></div>`);
-    };
-
-    // defer で DOM 解析完了後に実行
     document.addEventListener('DOMContentLoaded', () => {
-      push('<b>診断</b>：DOM 解析完了。ライブラリ読込をチェックします…');
+      const { createElement: h, useState, useEffect } = React;
 
-      // 1) ライブラリ存在チェック
-      const hasReact = !!window.React;
-      const hasDOM   = !!window.ReactDOM;
-      const hasXLSX  = !!window.XLSX;
+      // API（あなたの Vercel API）に合わせて変更可
+      const QUOTE_API = 'https://stock-quote-api-opal.vercel.app/api/quote';
 
-      push(`<div>React: ${hasReact ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>'}</div>`);
-      push(`<div>ReactDOM: ${hasDOM ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>'}</div>`);
-      push(`<div>XLSX: ${hasXLSX ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>'}</div>`);
-
-      // どれか NG ならパス/配置問題が濃厚
-      if (!hasReact || !hasDOM || !hasXLSX) {
-        push('<div class="ng"><b>いずれかのライブラリが読み込めていません。</b><br>index.html と vendor/ の階層、script の src を再確認してください。</div>');
-        return;
+      async function fetchQuote(ticker){
+        if(!ticker) return { price:null, source:null };
+        try{
+          const r = await fetch(`${QUOTE_API}?ticker=${encodeURIComponent(ticker)}`);
+          if(!r.ok) throw new Error('api '+r.status);
+          const j = await r.json();
+          const px = Number(j.price ?? j.regularMarketPrice ?? j.c ?? j.last ?? j.close);
+          return Number.isFinite(px) ? { price:px, source:j.source||'api' } : { price:null, source:null };
+        }catch(e){ return { price:null, source:null }; }
       }
 
-      // 2) 最小レンダリングテスト
-      try {
-        const root = document.getElementById('app');
-        const e = React.createElement('div', null, '✅ React 最小レンダリング OK');
-        ReactDOM.createRoot(root).render(e);
-        push('<div class="ok"><b>ReactDOM.createRoot → render 成功</b></div>');
-      } catch (err) {
-        push(`<div class="ng"><b>React レンダリング失敗</b><br><pre>${err.stack || err.message}</pre></div>`);
+      function App(){
+        const [name, setName] = useState('トヨタ自動車');
+        const [ticker, setTicker] = useState('7203.T');
+        const [price, setPrice] = useState(0);
+        const [src, setSrc] = useState('');
+        const [shares, setShares] = useState(0);
+        const [log, setLog] = useState([]);
+
+        // 価格取得
+        const getPrice = async () => {
+          setLog(l=>['fetch '+ticker, ...l]);
+          const { price:px, source } = await fetchQuote(ticker.trim());
+          if(px!==null){ setPrice(px); setSrc(source); setLog(l=>[`OK ${px} (${source})`, ...l]); }
+          else{ setLog(l=>['NG price=null', ...l]); alert('価格取得に失敗しました'); }
+        };
+
+        // Excel 読込（information シートを想定、Ticker/Price/Shares 列があれば拾う簡易実装）
+        const onExcel = async (ev)=>{
+          const f = ev.target.files?.[0]; if(!f) return;
+          const buf = await f.arrayBuffer();
+          const wb = XLSX.read(buf, { type:'array' });
+          const wsName = wb.SheetNames.includes('information') ? 'information' : wb.SheetNames[0];
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { defval:null });
+          if(Array.isArray(rows) && rows.length){
+            const r0 = rows[0];
+            if(r0.Ticker || r0.ticker) setTicker(String(r0.Ticker ?? r0.ticker));
+            if(r0.Price || r0.price) setPrice(Number(r0.Price ?? r0.price)||0);
+            if(r0.Shares || r0.shares) setShares(Number(r0.Shares ?? r0.shares)||0);
+            setLog(l=>[`Excel loaded: ${wsName} / ${rows.length} rows`, ...l]);
+          }else{
+            setLog(l=>['Excel parse: no rows', ...l]);
+          }
+        };
+
+        // 初回は自動で価格取得して見せる
+        useEffect(()=>{ getPrice(); /* 一度だけ */ },[]);
+
+        return h('div', { className:'wrap' },
+          h('h1', null, '株式評価ミニ（最小構成） ', h('small', null, 'React + XLSX + 価格API')),
+          h('div', { className:'card' },
+            h('div', { className:'row' },
+              h('div', null,
+                h('div', { className:'muted' }, '会社名'),
+                h('input', { type:'text', value:name, onChange:e=>setName(e.target.value) })
+              ),
+              h('div', null,
+                h('div', { className:'muted' }, 'ティッカー（例 7203.T）'),
+                h('input', { type:'text', value:ticker, onChange:e=>setTicker(e.target.value) })
+              ),
+              h('div', null,
+                h('div', { className:'muted' }, 'Excel 読込（任意）'),
+                h('input', { type:'file', accept:'.xlsx,.xls', onChange:onExcel })
+              ),
+            ),
+            h('div', { className:'mt grid2' },
+              h('div', { className:'kpi' }, h('div', { className:'lbl' }, '現在株価'), h('div', { className:'val' }, price.toLocaleString())),
+              h('div', { className:'kpi' }, h('div', { className:'lbl' }, '普通株式数（任意）'), h('input', { type:'number', value:shares||'', onChange:e=>setShares(Number(e.target.value)||0) })),
+            ),
+            h('div', { className:'mt' },
+              h('button', { className:'primary', onClick:getPrice }, '価格を更新'),
+              h('span', { className:'muted', style:{marginLeft:10}}, src ? `自動取得: ${src}` : ' ')
+            ),
+            h('div', { id:'errors', className:'mt' })
+          ),
+
+          h('div', { className:'card mt' },
+            h('div', { className:'muted' }, 'ログ（新しい順）'),
+            h('pre', null, log.join('\n')||'(なし)')
+          )
+        );
       }
+
+      const root = ReactDOM.createRoot(document.getElementById('app'));
+      root.render(React.createElement(App));
     });
   </script>
 </head>
 <body>
-  <div class="wrap">
-    <h1>stock-ev（診断版）</h1>
-    <div id="app" style="margin:12px 0; padding:12px; background:#fff; border-radius:10px;">読み込み中…</div>
-    <h3>ログ</h3>
-    <div id="log"></div>
-  </div>
+  <div id="app" class="wrap">読み込み中…</div>
 </body>
 </html>
+
