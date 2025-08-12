@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（フェーズ2・修正・株数/ROE/表示調整）</title>
+  <title>株式評価ミニ（フェーズ2・修正）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -14,19 +14,18 @@
     .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
     .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
     .label{font-size:12px;color:var(--muted);margin-bottom:6px}
-    input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff}
-    input[readonly]{background:#f8fafc}
+    input,button{font-size:14px}
+    input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
     .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
     .grid5-head{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:6px 0 4px}
     .grid5-head div{font-size:12px;color:var(--muted);text-align:center}
-    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:#fff}
-    .muted{color:var(--muted)}
     .log{white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;background:#0b1020;color:#e5e7eb;border-radius:10px;padding:12px;line-height:1.5}
     .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
     .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}
     .box b{font-size:22px}
     .pill{padding:2px 8px;border-radius:999px;color:#fff;font-weight:600}
     .pill.buy{background:#059669}.pill.neu{background:#f59e0b}.pill.sell{background:#dc2626}
+    .btn{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:#0ea5e9;color:#fff;cursor:pointer}
   </style>
   <!-- React / ReactDOM / XLSX（deferで順序保証）-->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
@@ -95,16 +94,24 @@
       const years=[2021,2022,2023,2024,2025];
 
       const [name,setName]=React.useState("");
-      const [ticker,setTicker]=React.useState("");
+      const [ticker,setTicker]=React.useState("7203.T");  // 初期値を戻す
       const [price,setPrice]=React.useState(0);
-      const [sharesOku,setSharesOku]=React.useState(0);     // 表示・編集は「億株」
-      const [op,setOp]=React.useState([0,0,0,0,0]);
-      const [fcf,setFcf]=React.useState([0,0,0,0,0]);
+      const [sharesOku,setSharesOku]=React.useState(0);     // 表示・計算ともに「億株」
+      const [op,setOp]=React.useState([0,0,0,0,0]);         // 億円
+      const [fcf,setFcf]=React.useState([0,0,0,0,0]);       // 億円
       const [roe,setRoe]=React.useState([0,0,0,0,0]);       // ％値（表示は小数2桁）
       const [dataset,setDataset]=React.useState([]);
       const [log,setLog]=React.useState("");
 
-      function appendLog(s){ setLog(p=>`${p?p+"\n":""}${s}`); }
+      const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
+
+      async function refreshPrice(srcTicker=null){
+        const tk=(srcTicker ?? ticker || "").trim();
+        if(!tk){ appendLog("ticker が空です"); return; }
+        const {price:px,source}=await fetchQuote(tk);
+        if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
+        else{ appendLog("価格の自動取得に失敗しました"); }
+      }
 
       async function handleExcel(e){
         const file=e.target.files?.[0]; if(!file) return;
@@ -119,41 +126,35 @@
           const getOp=y=> toNum(g(`Op_${y}`));
           const getFcf=y=> toNum(g(`FCF_${y}`));
           const getRoe=y=> parsePercentCell(g(`ROE_${y}`));
-          const shareOku= toNum(g("share","Shares_Oku","share_oku")); // ★ D列名：share（億株）
+          const shareOku= toNum(g("share","Shares_Oku","share_oku")); // D列: share（億株）
           return {
             id:idx+1,
             name: g("company","Company")||"",
             ticker: String(g("ticker","Ticker")||""),
             op: years.map(getOp),
             fcf: years.map(getFcf),
-            roe: years.map(getRoe),      // ％
+            roe: years.map(getRoe),
             sharesOku: Number(shareOku)||0
           };
         }).filter(r=>(r.name||"").trim()!=="");
 
         setDataset(rows);
         appendLog(`Excel loaded: ${wsName} / ${rows.length} rows`);
-        if(rows.length) fillFromRow(rows[0]);
+        if(rows.length) fillFromRow(rows[0], /*fetch*/true);
       }
 
-      function fillFromRow(row){
+      function fillFromRow(row, doFetch=false){
         setName(row.name||"");
         setTicker(row.ticker||"");
         setOp(asArr(row.op));
         setFcf(asArr(row.fcf));
         setRoe(asArr(row.roe));
-        setSharesOku(Number(row.sharesOku)||0); // ★ 億株
+        setSharesOku(Number(row.sharesOku)||0); // 億株
+        if(doFetch && row.ticker) refreshPrice(row.ticker); // Excel 読込後も即時取得
       }
 
-      React.useEffect(()=>{
-        let stop=false;
-        (async ()=>{
-          const tk=(ticker||"").trim(); if(!tk) return;
-          const {price:px,source}=await fetchQuote(tk);
-          if(!stop && px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
-        })();
-        return ()=>{ stop=true; };
-      },[ticker]);
+      // ティッカー変更時に自動取得
+      React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
 
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
@@ -185,10 +186,10 @@
           const mm2 = (cohort.max2-cohort.min2)===0? 0.5 : (inv-cohort.min2)/(cohort.max2-cohort.min2);
           breScore = clamp(mm2*100,0,100);
 
-          opTrendScore = ((growthScore + breScore)/2) * 0.15; // 0..15 相当だが表示は数値のみ
+          opTrendScore = ((growthScore + breScore)/2) * 0.15; // 表示は数値のみ
         }
 
-        const fundGenScore = asArr(fcf).filter(x=>(Number(x)||0)>0).length; // 0..5 → 表示は数値のみ
+        const fundGenScore = asArr(fcf).filter(x=>(Number(x)||0)>0).length;
 
         const roePct = asArr(roe).map(parsePercentCell);
         const lastRoePct = Number.isFinite(roePct[4])? roePct[4]:0;
@@ -206,17 +207,17 @@
           gN = (slopeStd + 2.5)/100;
         }
 
-        // ★ sharesOku（億株）→ 株数へ
-        const shares = Math.max(0, Number(sharesOku)||0);
+        // ★ 株数は「億株」のまま計算（OP なども億単位のため）
+        const sharesOkuLocal = Math.max(0, Number(sharesOku)||0); // 億株
 
-        // 目標株価（簡易）
+        // 目標株価（簡易：全て億単位 → 最後の割り算で円/株になる）
         let g=0; if(op[4]>0 && op[3]>0) g= op[4]/op[3]-1;
-        const op5=(op[3]||0)*Math.pow(1+g,5);
-        const ni5=0.65*op5;
+        const op5=(op[3]||0)*Math.pow(1+g,5);   // 億円
+        const ni5=0.65*op5;                     // 億円
         const denom=Math.max(1e-6, r-gN);
-        const tv5=ni5*(1+gN)/denom;
-        const pv=tv5/Math.pow(1+r,5);
-        const target = shares>0? pv/shares : 0;
+        const tv5=ni5*(1+gN)/denom;             // 億円
+        const pv=tv5/Math.pow(1+r,5);           // 億円
+        const target = sharesOkuLocal>0? pv/sharesOkuLocal : 0; // （億円）/（億株）= 円/株
         const ratio = price>0? target/price : 0;
         const verdict = ratio>=2? "buy" : ratio>=1? "neu" : "sell";
 
@@ -240,7 +241,10 @@
             React.createElement("div",{className:"row",style:{marginTop:10}},
               React.createElement("div",null,
                 React.createElement("div",{className:"label"},"現在株価（円）"),
-                React.createElement("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"})
+                React.createElement("div",{className:"row"},
+                  React.createElement("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}),
+                  React.createElement("button",{className:"btn",onClick:()=>refreshPrice(),style:{justifySelf:"start"}}, "価格を更新")
+                )
               ),
               React.createElement("div",null,
                 React.createElement("div",{className:"label"},"普通株式数（億株）※ information!D の 'share' を自動読込"),
@@ -259,19 +263,19 @@
 
           React.createElement("div",{className:"card",style:{marginBottom:16}},
             React.createElement("div",{className:"label"},"過去5年 営業利益（億円）"),
-            React.createElement("div",{className:"grid5-head"}, years.map(y=>React.createElement("div",{key:y},y))),
+            React.createElement("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>React.createElement("div",{key:y},y))),
             React.createElement("div",{className:"grid5"},
               op.map((v,i)=>React.createElement("input",{key:i,value:v,onChange:e=>setOp(op.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))
             ),
 
             React.createElement("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
-            React.createElement("div",{className:"grid5-head"}, years.map(y=>React.createElement("div",{key:y},y))),
+            React.createElement("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>React.createElement("div",{key:y},y))),
             React.createElement("div",{className:"grid5"},
               fcf.map((v,i)=>React.createElement("input",{key:i,value:v,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))
             ),
 
             React.createElement("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
-            React.createElement("div",{className:"grid5-head"}, years.map(y=>React.createElement("div",{key:y},y))),
+            React.createElement("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>React.createElement("div",{key:y},y))),
             React.createElement("div",{className:"grid5"},
               roe.map((v,i)=>React.createElement("input",{
                 key:i,
@@ -300,7 +304,9 @@
                 )
               ),
               React.createElement("div",{style:{marginTop:10,fontSize:22,fontWeight:700}}, "合計：", calc.investScore.toFixed(2),
-                "　", React.createElement("span",{className:"tag"}, calc.investLabel)
+                "　", React.createElement("span",{className:"pill "+(calc.verdict==="buy"?"buy":calc.verdict==="neu"?"neu":"sell")},
+                  calc.investScore<8? "売るべき企業" : calc.investScore<10? "様子見企業" : calc.investScore<12? "よい企業" : "すばらしい企業"
+                )
               )
             ),
             React.createElement("div",{className:"card"},
@@ -309,12 +315,6 @@
                 React.createElement("div",{className:"box"}, React.createElement("div",{className:"muted"},"期待収益率 r"), React.createElement("div",null, React.createElement("b",null, prettyPct(calc.r*100)))),
                 React.createElement("div",{className:"box"}, React.createElement("div",{className:"muted"},"成長率 gN（標準化）"), React.createElement("div",null, React.createElement("b",null, prettyPct(calc.gN*100)))),
                 React.createElement("div",{className:"box"}, React.createElement("div",{className:"muted"},"目標株価"), React.createElement("div",null, React.createElement("b",null, pretty(calc.target))))
-              ),
-              React.createElement("div",{style:{marginTop:10}},
-                "判定： ",
-                React.createElement("span",{className:`pill ${calc.verdict==="buy"?"buy":calc.verdict==="neu"?"neu":"sell"}`},
-                  calc.verdict==="buy"?"買い":calc.verdict==="neu"?"中立":"売り"
-                )
               )
             )
           ),
