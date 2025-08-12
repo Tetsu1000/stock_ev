@@ -28,9 +28,9 @@
     .pill{padding:2px 8px;border-radius:999px;color:#fff;font-weight:600}
     /* 評価色（濃い緑/薄い緑/黄/赤） */
     .pill.great{background:#065f46} /* すばらしい：濃い緑 */
-    .pill.good {background:#34d399} /* よい：薄い緑 */
-    .pill.neu  {background:#f59e0b} /* 様子見：黄 */
-    .pill.sell {background:#dc2626} /* 売るべき：赤 */
+    .pill.good {background:#34d399} /* よい：薄い緑   */
+    .pill.neu  {background:#f59e0b} /* 様子見：黄     */
+    .pill.sell {background:#dc2626} /* 売るべき：赤   */
     .btn{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:#0ea5e9;color:#fff;cursor:pointer}
     /* list */
     .list{display:flex;flex-direction:column;gap:8px;max-height:560px;overflow:auto}
@@ -67,6 +67,7 @@
     const iqr=a=>{ const b=[...a].sort((x,y)=>x-y); const q=p=>{ const pos=(b.length-1)*p; const i=Math.floor(pos); const r=pos-i; return b[i]+r*(b[Math.min(i+1,b.length-1)]-b[i]); }; return Math.max(1e-9,q(0.75)-q(0.25)); };
     const linreg=(arr)=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope= den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
 
+    // 信頼性を上げた株価自動取得（ホストAPI → Yahoo → stooq）
     async function fetchQuote(tk){
       if(!tk) return {price:null,source:null};
       try{ // hosted API
@@ -360,13 +361,9 @@
                   h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
                 ),
-                /* 合計と評価を改行して表示（スクリーナーと同じ配色） */
-                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},
-                  "合計：", calc.investScore.toFixed(2)
-                ),
-                h("div",{style:{marginTop:8}},
-                  h("span",{className:"pill "+invCls}, invLabel)
-                )
+                /* 合計と評価は改行し、評価はスクリーナーと同色 */
+                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
+                h("div",{style:{marginTop:8}}, h("span",{className:"pill "+(calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great")}, (calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業")))
               ),
 
               h("div",{className:"card"},
@@ -376,17 +373,15 @@
                   h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
                 ),
-                /* 目標株価 vs 現在株価 の評価表示 */
-                h("div",{style:{marginTop:10}},
-                  h("span",{className:"pill "+calc.valVerdict}, calc.valLabel)
-                )
+                /* 目標株価 vs 現在株価 の評価 */
+                h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
               )
             ),
 
             h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
           ),
 
-          // 右：一覧
+          // 右：一覧（常に全件表示、投資スコア降順）
           h("div",null,
             h("div",{className:"card"},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
