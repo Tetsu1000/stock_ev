@@ -26,7 +26,11 @@
     .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}
     .box b{font-size:22px}
     .pill{padding:2px 8px;border-radius:999px;color:#fff;font-weight:600}
-    .pill.buy{background:#059669}.pill.neu{background:#f59e0b}.pill.sell{background:#dc2626}
+    /* 評価色（濃い緑/薄い緑/黄/赤） */
+    .pill.great{background:#065f46} /* すばらしい：濃い緑 */
+    .pill.good {background:#34d399} /* よい：薄い緑 */
+    .pill.neu  {background:#f59e0b} /* 様子見：黄 */
+    .pill.sell {background:#dc2626} /* 売るべき：赤 */
     .btn{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:#0ea5e9;color:#fff;cursor:pointer}
     /* list */
     .list{display:flex;flex-direction:column;gap:8px;max-height:560px;overflow:auto}
@@ -37,7 +41,7 @@
     .searchrow{display:grid;grid-template-columns:1fr 180px;gap:12px}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
   </style>
-  <!-- ライブラリ -->
+  <!-- ライブラリ（CDN） -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
@@ -52,29 +56,28 @@
     const h=React.createElement;
 
     /* ==== utils ==== */
-    const asArr=v=>Array.isArray(v)?v:[];
-    const clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
+    const asArr=v=>Array.isArray(v)?v:[]; const clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
     const pretty=(n)=>Number.isFinite(n)?n.toLocaleString():"-";
     const prettyPct=(x)=>Number.isFinite(x)?(x.toFixed(2)+"%"):"-";
     const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
     const parsePercentCell=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number"){ return Math.abs(v)<=1? v*100 : v; } const s=String(v).trim(); if(s.endsWith("%")) return toNum(s.replace("%","")); const n=toNum(s); return Math.abs(n)<=1? n*100 : n; };
-    const linreg=(arr)=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope= den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
     const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length:0;
     const stdev=a=>{ const m=mean(a); const v=a.length? a.reduce((s,v)=>s+(v-m)**2,0)/a.length:0; return Math.sqrt(v); };
     const median=a=>{ const b=[...a].sort((x,y)=>x-y); const n=b.length; if(!n) return 0; const m=Math.floor(n/2); return n%2? b[m] : (b[m-1]+b[m])/2; };
     const iqr=a=>{ const b=[...a].sort((x,y)=>x-y); const q=p=>{ const pos=(b.length-1)*p; const i=Math.floor(pos); const r=pos-i; return b[i]+r*(b[Math.min(i+1,b.length-1)]-b[i]); }; return Math.max(1e-9,q(0.75)-q(0.25)); };
+    const linreg=(arr)=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope= den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
 
     async function fetchQuote(tk){
       if(!tk) return {price:null,source:null};
-      try{
+      try{ // hosted API
         const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`);
         if(r.ok){ const j=await r.json(); const px=Number(j.price ?? j.c ?? j.close); if(Number.isFinite(px)) return {price:px,source:`api(${j.source||"hosted"})`}; }
       }catch(_){}
-      try{
+      try{ // yahoo
         const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tk)}`,{mode:"cors"});
         if(r.ok){ const j=await r.json(); const q=j?.quoteResponse?.result?.[0]; const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose); if(Number.isFinite(px)) return {price:px,source:"yahoo"}; }
       }catch(_){}
-      try{
+      try{ // stooq（JPは .t → .jp）
         let s=tk.toLowerCase(); if(s.endsWith(".t")) s=s.replace(/\.t$/,".jp");
         const r=await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`,{mode:"cors"});
         if(r.ok){ const t=await r.text(); const lines=t.trim().split(/\r?\n/); if(lines.length>=2){ const head=lines[0].split(","); const row=lines[1].split(","); const idx=head.findIndex(h=>h.toLowerCase()==="close"); const px=Number(row[idx>=0?idx:row.length-2]); if(Number.isFinite(px)) return {price:px,source:"stooq"}; } }
@@ -91,9 +94,9 @@
       const [sharesOku,setSharesOku]=React.useState(0);     // 億株
       const [op,setOp]=React.useState([0,0,0,0,0]);         // 億円
       const [fcf,setFcf]=React.useState([0,0,0,0,0]);       // 億円
-      const [roe,setRoe]=React.useState([0,0,0,0,0]);       // ％値
-      const [opNowEst,setOpNowEst]=React.useState(0);       // 今期予想（億円）
-      const [opNextEst,setOpNextEst]=React.useState(0);     // 来期予想（億円）
+      const [roe,setRoe]=React.useState([0,0,0,0,0]);       // %
+      const [opNowEst,setOpNowEst]=React.useState(0);       // Op_2026（億円）
+      const [opNextEst,setOpNextEst]=React.useState(0);     // Op_2027（億円）
       const [dataset,setDataset]=React.useState([]);
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
@@ -101,8 +104,7 @@
       const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
 
       async function refreshPrice(){
-        const tk=(ticker||"").trim();
-        if(!tk){ appendLog("ticker が空です"); return; }
+        const tk=(ticker||"").trim(); if(!tk){ appendLog("ticker が空です"); return; }
         const {price:px,source}=await fetchQuote(tk);
         if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
         else{ appendLog("価格の自動取得に失敗しました"); }
@@ -118,12 +120,10 @@
 
         const rows=asArr(json).map((r,idx)=>{
           const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
-          const getOp=y=> toNum(g(`Op_${y}`,`OP_${y}`));   // Op_2021 など
+          const getOp=y=> toNum(g(`Op_${y}`,`OP_${y}`));
           const getFcf=y=> toNum(g(`FCF_${y}`));
           const getRoe=y=> parsePercentCell(g(`ROE_${y}`));
           const shareOku= toNum(g("share","Shares_Oku","share_oku")); // D列 'share'（億株）
-
-          // ★ ここを Op_2026 / Op_2027 優先に修正
           const opNow = toNum(g("Op_2026","OP_2026","OP_now","OP_this","今期OP予想","OP_今期"));
           const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想","OP_来期"));
 
@@ -151,14 +151,10 @@
       }
 
       function fillFromRow(row, doFetch=false){
-        setName(row.name||"");
-        setTicker(row.ticker||"");
-        setOp(asArr(row.op));
-        setFcf(asArr(row.fcf));
-        setRoe(asArr(row.roe));
+        setName(row.name||""); setTicker(row.ticker||"");
+        setOp(asArr(row.op)); setFcf(asArr(row.fcf)); setRoe(asArr(row.roe));
         setSharesOku(Number(row.sharesOku)||0);
-        setOpNowEst(Number(row.opNowEst)||0);
-        setOpNextEst(Number(row.opNextEst)||0);
+        setOpNowEst(Number(row.opNowEst)||0); setOpNextEst(Number(row.opNextEst)||0);
         if(Number(row.price)) setPrice(Number(row.price));
         if(doFetch && row.ticker) refreshPrice();
       }
@@ -166,26 +162,26 @@
       // ティッカー変更時は自動取得
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
 
-      /* === cohort（分布） === */
-      const lin=linreg;
+      /* === cohort === */
+      const lin=linreg, meanArr=mean, st=stdev, med=median, iqrF=iqr;
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
-        const slopeDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
-        const seDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.se/m; });
+        const slopeDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,meanArr(r.op)); return lr.slope/m; });
+        const seDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,meanArr(r.op)); return lr.se/m; });
         const invs=seDivs.map(x=>1/Math.max(1e-9,x));
-        const med1=median(slopeDivs), i1=iqr(slopeDivs);
+        const med1=med(slopeDivs), i1=iqrF(slopeDivs);
         const rzArr=i1===0? slopeDivs.map(()=>0.5): slopeDivs.map(x=>(x-med1)/i1);
         const min1=Math.min(...rzArr), max1=Math.max(...rzArr);
         const min2=Math.min(...invs), max2=Math.max(...invs);
-        const muSlope=mean(slopeDivs), sdSlope=Math.max(1e-9,stdev(slopeDivs));
-        const muSe=mean(seDivs), sdSe=Math.max(1e-9,stdev(seDivs));
+        const muSlope=meanArr(slopeDivs), sdSlope=Math.max(1e-9,st(slopeDivs));
+        const muSe=meanArr(seDivs), sdSe=Math.max(1e-9,st(seDivs));
         return {med1,i1,min1,max1,min2,max2,muSlope,sdSlope,muSe,sdSe};
       },[dataset]);
 
       /* === 左ペイン計算 === */
       const calc=React.useMemo(()=>{
         const lr=lin(op);
-        const mOP=Math.max(1e-9,mean(op));
+        const mOP=Math.max(1e-9,meanArr(op));
         const slopeDiv=lr.slope/mOP;
         const seDiv=lr.se/mOP;
 
@@ -199,7 +195,6 @@
           breScore = clamp(mm2*100,0,100);
           opTrendScore = ((growthScore + breScore)/2) * 0.15;
         }
-
         const fundGenScore = asArr(fcf).filter(x=>(Number(x)||0)>0).length;
 
         const roePct = asArr(roe).map(parsePercentCell);
@@ -211,26 +206,17 @@
 
         let r=0.07, gN=0.025;
         if(cohort){
-          const seStd = (seDiv - cohort.muSe)/cohort.sdSe;
-          r = (seStd + 7)/100;
-          const slopeStd = (slopeDiv - cohort.muSlope)/cohort.sdSlope;
-          gN = (slopeStd + 2.5)/100;
+          const seStd = (seDiv - cohort.muSe)/cohort.sdSe; r = (seStd + 7)/100;
+          const slopeStd = (slopeDiv - cohort.muSlope)/cohort.sdSlope; gN = (slopeStd + 2.5)/100;
         }
 
         // === 目標株価：前期(2025)実績 と 今期/来期予想から g を算出 ===
-        // === 目標株価：前期(2025)実績 と 今期/来期予想から g を算出 ===
-	const lastActual = Number(op[4]) || 0; // 億円
-	const nowEst = Number(opNowEst) || 0;  // 2026予想
-	const nextEst = Number(opNextEst) || 0; // 2027予想
-
-	let g = 0;
-	if (nextEst > 0) {
-    	// 来期予想がある場合 → (来期予想 / 前期実績) の平方根 - 1
-   	 g = Math.sqrt(nextEst / lastActual) - 1;
-	} else if (nowEst > 0) {
-   	 // 今期予想のみある場合 → (今期予想 / 前期実績) - 1
-    	g = (nowEst / lastActual) - 1;
-	}
+        const lastActual = Number(op[4]) || 0; // 億円
+        const nowEst = Number(opNowEst) || 0;  // 2026 予想
+        const nextEst = Number(opNextEst) || 0; // 2027 予想
+        let g = 0;
+        if (nextEst > 0 && lastActual > 0) { g = Math.sqrt(nextEst / lastActual) - 1; }
+        else if (nowEst > 0 && lastActual > 0) { g = (nowEst / lastActual) - 1; }
 
         const op5 = lastActual * Math.pow(1+g, 5); // 億円
         const ni5 = 0.65 * op5;                    // 億円
@@ -239,17 +225,18 @@
         const pv  = tv5 / Math.pow(1+r, 5);        // 億円
         const target = (Number(sharesOku)||0) > 0 ? pv / Number(sharesOku) : 0; // 円/株
 
+        // 割安度の判定（目標株価 vs 現在株価）
         const ratio = price>0? target/price : 0;
-        const verdict = ratio>=2? "buy" : ratio>=1? "neu" : "sell";
+        const valVerdict = ratio>2 ? "great" : ratio>1 ? "neu" : "sell"; // great/neu/sell を色に直結
+        const valLabel = ratio>2 ? "割安" : ratio>1 ? "様子見" : "売るべき";
 
-        return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,verdict};
+        return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst]);
 
       /* === 検索 === */
       function onSearchChange(v){
         setSearch(v);
-        const key=v.trim().toLowerCase();
-        if(!key) return;
+        const key=v.trim().toLowerCase(); if(!key) return;
         const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
         if(hit) fillFromRow(hit,false);
       }
@@ -260,7 +247,7 @@
         if(hit) fillFromRow(hit,true);
       }
 
-      /* === 一覧 === */
+      /* === 一覧（スクリーナー） === */
       function scoreRow(row){
         const lr=lin(row.op);
         const mOP=Math.max(1e-9,mean(row.op));
@@ -284,9 +271,13 @@
         const barrierScore = (lastRoePct/3) + (roeSlopePctPerYear/10);
         const investScore = opTrendScore + fundGenScore + barrierScore;
 
-        const label = investScore<8? "売るべき企業" : investScore<10? "様子見企業" : investScore<12? "よい" : "すばらしい";
-        const verdict = investScore<8? "sell" : investScore<10? "neu" : "buy";
-        return {investScore,label,verdict};
+        let label="", cls="";
+        if(investScore<8){ label="売るべき企業"; cls="sell"; }
+        else if(investScore<10){ label="様子見企業"; cls="neu"; }
+        else if(investScore<12){ label="よい企業"; cls="good"; }
+        else{ label="すばらしい企業"; cls="great"; }
+
+        return {investScore,label,cls};
       }
 
       const ranked=React.useMemo(()=> dataset
@@ -296,11 +287,18 @@
 
       const counts=React.useMemo(()=>{
         let great=0, good=0;
-        ranked.forEach(r=>{ if(r._s.label==="すばらしい") great++; else if(r._s.label==="よい") good++; });
+        ranked.forEach(r=>{ if(r._s.label==="すばらしい企業") great++; else if(r._s.label==="よい企業") good++; });
         return {great,good};
       },[ranked]);
 
       /* === UI === */
+      // 左カードの投資スコア評価の色（スクリーナーと統一）
+      let invLabel="", invCls="";
+      if(calc.investScore<8){ invLabel="売るべき企業"; invCls="sell"; }
+      else if(calc.investScore<10){ invLabel="様子見企業"; invCls="neu"; }
+      else if(calc.investScore<12){ invLabel="よい企業"; invCls="good"; }
+      else{ invLabel="すばらしい企業"; invCls="great"; }
+
       return h(React.Fragment,null,
         h("h1",null,"株式評価ミニ（最小構成 → フェーズ3・安定版）"),
         h("div",{className:"twocol"},
@@ -362,19 +360,25 @@
                   h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
                 ),
+                /* 合計と評価を改行して表示（スクリーナーと同じ配色） */
                 h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},
-                  "合計：", calc.investScore.toFixed(2), "　",
-                  h("span",{className:"pill "+(calc.verdict==="buy"?"buy":calc.verdict==="neu"?"neu":"sell")},
-                    calc.investScore<8? "売るべき企業" : calc.investScore<10? "様子見企業" : calc.investScore<12? "よい企業" : "すばらしい企業"
-                  )
+                  "合計：", calc.investScore.toFixed(2)
+                ),
+                h("div",{style:{marginTop:8}},
+                  h("span",{className:"pill "+invCls}, invLabel)
                 )
               ),
+
               h("div",{className:"card"},
                 h("div",{className:"label"},"割安度（目標株価と比較）"),
                 h("div",{className:"kpi"},
                   h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
+                ),
+                /* 目標株価 vs 現在株価 の評価表示 */
+                h("div",{style:{marginTop:10}},
+                  h("span",{className:"pill "+calc.valVerdict}, calc.valLabel)
                 )
               )
             ),
@@ -395,7 +399,7 @@
                   h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, (r.op||[]).slice(-2)[0] ? "OP trendあり" : "")),
                   h("div",null,r.ticker||"-"),
                   h("div",null,(r._s.investScore).toFixed(2)),
-                  h("div",null, h("span",{className:"pill "+(r._s.verdict==="buy"?"buy":r._s.verdict==="neu"?"neu":"sell")}, r._s.label))
+                  h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
                 ))
               )
             )
