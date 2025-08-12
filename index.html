@@ -140,7 +140,7 @@
           const getOp=(y)=> toNum(get(`Op_${y}`,null));
           const getFcf=(y)=> toNum(get(`FCF_${y}`,null));
           const getRoe=(y)=> parsePercentCell(get(`ROE_${y}`,null)); // ％
-          const sharesOku= toNum(get("Shares_Oku","share_oku")); // D列（単位：億株）を受ける列名例
+          const sharesOku= toNum(get("Shares","share")); // D列（単位：億株）を受ける列名例
           return {
             id:idx+1,
             name: get("company","Company")||"",
