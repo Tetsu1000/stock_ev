@@ -106,7 +106,7 @@
       const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
 
       async function refreshPrice(srcTicker=null){
-        const tk=(srcTicker ?? ticker || "").trim();
+        const tk=(ticker||"").trim();
         if(!tk){ appendLog("ticker が空です"); return; }
         const {price:px,source}=await fetchQuote(tk);
         if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
@@ -332,3 +332,4 @@
   </script>
 </body>
 </html>
+
