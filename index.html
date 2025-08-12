@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（フェーズ3）</title>
+  <title>株式評価ミニ（フェーズ3・予想OP対応）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -35,6 +35,7 @@
     .hdr{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;margin:4px 0 8px;font-size:12px;color:var(--muted)}
     .searchrow{display:grid;grid-template-columns:1fr 180px;gap:12px}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
+    .disabled{background:#f8fafc;color:#64748b}
   </style>
   <!-- React / ReactDOM / XLSX -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
@@ -108,15 +109,17 @@
       const [sharesOku,setSharesOku]=React.useState(0);     // 表示・計算ともに「億株」
       const [op,setOp]=React.useState([0,0,0,0,0]);         // 億円
       const [fcf,setFcf]=React.useState([0,0,0,0,0]);       // 億円
-      const [roe,setRoe]=React.useState([0,0,0,0,0]);       // ％（値は 8.9 のように％値）
+      const [roe,setRoe]=React.useState([0,0,0,0,0]);       // %（8.9 のように％値）
+      const [opNowEst,setOpNowEst]=React.useState(0);       // 今期OP予想（億円）
+      const [opNextEst,setOpNextEst]=React.useState(0);     // 来期OP予想（億円）
       const [dataset,setDataset]=React.useState([]);
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
 
       const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
 
-      async function refreshPrice(srcTicker=null){
-        const tk=(ticker||"").trim();     // ユーザー修正に合わせる
+      async function refreshPrice(){
+        const tk=(ticker||"").trim();
         if(!tk){ appendLog("ticker が空です"); return; }
         const {price:px,source}=await fetchQuote(tk);
         if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
@@ -137,6 +140,8 @@
           const getFcf=y=> toNum(g(`FCF_${y}`));
           const getRoe=y=> parsePercentCell(g(`ROE_${y}`));
           const shareOku= toNum(g("share","Shares_Oku","share_oku")); // D列: share（億株）
+          const opNow = toNum(g("OP_now","OP_this","今期OP予想","OP_2026","OP_今期"));
+          const opNext= toNum(g("OP_next","来期OP予想","OP_2027","OP_来期"));
           return {
             id:idx+1,
             name: g("company","Company")||"",
@@ -145,7 +150,9 @@
             fcf: years.map(getFcf),
             roe: years.map(getRoe),
             sharesOku: Number(shareOku)||0,
-            price: Number(toNum(g("price","Price")))||null   // 任意：価格列があれば使う
+            price: Number(toNum(g("price","Price")))||null,
+            opNowEst: opNow||0,
+            opNextEst: opNext||0
           };
         }).filter(r=>(r.name||"").trim()!=="");
 
@@ -161,8 +168,10 @@
         setFcf(asArr(row.fcf));
         setRoe(asArr(row.roe));
         setSharesOku(Number(row.sharesOku)||0); // 億株
+        setOpNowEst(Number(row.opNowEst)||0);
+        setOpNextEst(Number(row.opNextEst)||0);
         if(Number(row.price)) setPrice(Number(row.price));
-        if(doFetch && row.ticker) refreshPrice(row.ticker);
+        if(doFetch && row.ticker) refreshPrice();
       }
 
       // ティッカー変更時に自動取得
@@ -218,20 +227,22 @@
           gN = (slopeStd + 2.5)/100;
         }
 
-        // 目標株価（億単位のまま計算）
-        const sharesOkuLocal = Math.max(0, Number(sharesOku)||0);
-        let g=0; if(op[4]>0 && op[3]>0) g= op[4]/op[3]-1;
-        const op5=(op[3]||0)*Math.pow(1+g,5);   // 億円
-        const ni5=0.65*op5;                     // 億円
-        const denom=Math.max(1e-6, r-gN);
-        const tv5=ni5*(1+gN)/denom;             // 億円
-        const pv=tv5/Math.pow(1+r,5);           // 億円
-        const target = sharesOkuLocal>0? pv/sharesOkuLocal : 0; // 円/株
+        // === 目標株価：前期(2025)実績と 今期/来期 予想から算出 ===
+        const lastActual = Number(op[4])||0;           // 2025 実績 OP（億円）
+        const est = Number(opNextEst)||Number(opNowEst)||lastActual; // 2027→2026→無ければ前期
+        const g = lastActual>0 ? (est/lastActual - 1) : 0;
+
+        const op5 = lastActual * Math.pow(1+g, 5);    // 億円
+        const ni5 = 0.65 * op5;                       // 億円
+        const denom = Math.max(1e-6, r - gN);
+        const tv5 = ni5 * (1+gN) / denom;             // 億円
+        const pv  = tv5 / Math.pow(1+r, 5);           // 億円
+        const target = (Number(sharesOku)||0) > 0 ? pv / Number(sharesOku) : 0; // 円/株
         const ratio = price>0? target/price : 0;
         const verdict = ratio>=2? "buy" : ratio>=1? "neu" : "sell";
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,verdict};
-      },[op,fcf,roe,sharesOku,price,cohort]);
+      },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst]);
 
       // 検索：入力 → 最初の一致をフォームへ反映（Enterで即反映）
       function onSearchChange(v){
@@ -291,7 +302,7 @@
 
       return (
         React.createElement(React.Fragment,null,
-          React.createElement("h1",null,"株式評価ミニ（最小構成 → フェーズ3）"),
+          React.createElement("h1",null,"株式評価ミニ（最小構成 → フェーズ3・予想OP対応）"),
           React.createElement("div",{className:"twocol"},
             /* ===== 左：フォーム & 主要KPI ===== */
             React.createElement("div",null,
@@ -360,6 +371,29 @@
                   }))
                 )
               ),
+
+              <!-- 予想OP入力 -->
+              <div class="card" style="margin-bottom:16px">
+                <div class="label">OP（前期/今期/来期 予想）</div>
+                <div class="row3">
+                  <div>
+                    <div class="label">前期OP（億円）※2025実績</div>
+                    <input class="disabled" value="" id="prev-op" disabled />
+                  </div>
+                  <div>
+                    <div class="label">今期OP予想（億円）</div>
+                    <input value="" id="now-op" inputmode="decimal" />
+                  </div>
+                  <div>
+                    <div class="label">来期OP予想（億円・任意）</div>
+                    <input value="" id="next-op" inputmode="decimal" />
+                  </div>
+                </div>
+              </div>
+
+              <script>
+                // 予想 OP 入力を React state と同期（後段でフックに置換）
+              </script>
 
               React.createElement("div",{className:"row",style:{marginBottom:16}},
                 React.createElement("div",{className:"card"},
