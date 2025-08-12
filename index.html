@@ -218,9 +218,19 @@
         }
 
         // === 目標株価：前期(2025)実績 と 今期/来期予想から g を算出 ===
-        const lastActual = Number(op[4])||0; // 億円
-        const est = Number(opNextEst)||Number(opNowEst)||lastActual;
-        const g = lastActual>0 ? (est/lastActual - 1) : 0;
+        // === 目標株価：前期(2025)実績 と 今期/来期予想から g を算出 ===
+	const lastActual = Number(op[4]) || 0; // 億円
+	const nowEst = Number(opNowEst) || 0;  // 2026予想
+	const nextEst = Number(opNextEst) || 0; // 2027予想
+
+	let g = 0;
+	if (nextEst > 0) {
+    	// 来期予想がある場合 → (来期予想 / 前期実績) の平方根 - 1
+   	 g = Math.sqrt(nextEst / lastActual) - 1;
+	} else if (nowEst > 0) {
+   	 // 今期予想のみある場合 → (今期予想 / 前期実績) - 1
+    	g = (nowEst / lastActual) - 1;
+	}
 
         const op5 = lastActual * Math.pow(1+g, 5); // 億円
         const ni5 = 0.65 * op5;                    // 億円
