@@ -312,8 +312,8 @@
                     React.createElement("div",{className:"label"},"会社名 / ティッカーを検索（入力でフォームへ反映、Enterで確定＆価格取得）"),
                     React.createElement("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
                   ),
-                  React.createElement("div",null,
-                    React.createElement("div",{className:"label"},"価格の自動取得"),
+                React.createElement("div",null,
+                  React.createElement("div",{className:"label"},"価格の自動取得"),
                     React.createElement("button",{className:"btn",style:{width:"100%"},onClick:()=>refreshPrice()},"価格を更新")
                   )
                 ),
