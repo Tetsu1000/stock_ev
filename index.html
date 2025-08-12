@@ -118,12 +118,15 @@
 
         const rows=asArr(json).map((r,idx)=>{
           const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
-          const getOp=y=> toNum(g(`Op_${y}`));
+          const getOp=y=> toNum(g(`Op_${y}`,`OP_${y}`));   // Op_2021 など
           const getFcf=y=> toNum(g(`FCF_${y}`));
           const getRoe=y=> parsePercentCell(g(`ROE_${y}`));
           const shareOku= toNum(g("share","Shares_Oku","share_oku")); // D列 'share'（億株）
-          const opNow = toNum(g("OP_now","OP_this","今期OP予想","OP_2026","OP_今期"));
-          const opNext= toNum(g("OP_next","来期OP予想","OP_2027","OP_来期"));
+
+          // ★ ここを Op_2026 / Op_2027 優先に修正
+          const opNow = toNum(g("Op_2026","OP_2026","OP_now","OP_this","今期OP予想","OP_今期"));
+          const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想","OP_来期"));
+
           return {
             id:idx+1,
             name: g("company","Company")||"",
@@ -140,7 +143,11 @@
 
         setDataset(rows);
         appendLog(`Excel loaded: ${wsName} / ${rows.length} rows`);
-        if(rows.length) fillFromRow(rows[0], /*fetch*/true);
+        if(rows.length){
+          const a=rows[0];
+          appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / Op_2026=${a.opNowEst}, Op_2027=${a.opNextEst}, share=${a.sharesOku}億株`);
+          fillFromRow(a, /*fetch*/true);
+        }
       }
 
       function fillFromRow(row, doFetch=false){
@@ -160,10 +167,11 @@
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
 
       /* === cohort（分布） === */
+      const lin=linreg;
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
-        const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
-        const seDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.se/m; });
+        const slopeDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
+        const seDivs=dataset.map(r=>{ const lr=lin(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.se/m; });
         const invs=seDivs.map(x=>1/Math.max(1e-9,x));
         const med1=median(slopeDivs), i1=iqr(slopeDivs);
         const rzArr=i1===0? slopeDivs.map(()=>0.5): slopeDivs.map(x=>(x-med1)/i1);
@@ -176,7 +184,7 @@
 
       /* === 左ペイン計算 === */
       const calc=React.useMemo(()=>{
-        const lr=linreg(op);
+        const lr=lin(op);
         const mOP=Math.max(1e-9,mean(op));
         const slopeDiv=lr.slope/mOP;
         const seDiv=lr.se/mOP;
@@ -196,7 +204,7 @@
 
         const roePct = asArr(roe).map(parsePercentCell);
         const lastRoePct = Number.isFinite(roePct[4])? roePct[4]:0;
-        const roeSlopePctPerYear = linreg(roePct).slope;
+        const roeSlopePctPerYear = lin(roePct).slope;
         const barrierScore = (lastRoePct/3) + (roeSlopePctPerYear/10);
 
         const investScore = opTrendScore + fundGenScore + barrierScore;
@@ -209,7 +217,7 @@
           gN = (slopeStd + 2.5)/100;
         }
 
-        // === 目標株価：前期(2025)と今期/来期予想から g ===
+        // === 目標株価：前期(2025)実績 と 今期/来期予想から g を算出 ===
         const lastActual = Number(op[4])||0; // 億円
         const est = Number(opNextEst)||Number(opNowEst)||lastActual;
         const g = lastActual>0 ? (est/lastActual - 1) : 0;
@@ -244,7 +252,7 @@
 
       /* === 一覧 === */
       function scoreRow(row){
-        const lr=linreg(row.op);
+        const lr=lin(row.op);
         const mOP=Math.max(1e-9,mean(row.op));
         const slopeDiv=lr.slope/mOP;
         const seDiv=lr.se/mOP;
@@ -262,7 +270,7 @@
         const fundGenScore = asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const roePct = asArr(row.roe).map(parsePercentCell);
         const lastRoePct = Number.isFinite(roePct[4])? roePct[4]:0;
-        const roeSlopePctPerYear = linreg(roePct).slope;
+        const roeSlopePctPerYear = lin(roePct).slope;
         const barrierScore = (lastRoePct/3) + (roeSlopePctPerYear/10);
         const investScore = opTrendScore + fundGenScore + barrierScore;
 
@@ -331,8 +339,8 @@
               h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
               h("div",{className:"row3"},
                 h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value: op[4]||0, disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
               )
             ),
 
