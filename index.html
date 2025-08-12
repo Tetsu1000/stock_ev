@@ -3,285 +3,373 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>株式評価ミニ（フェーズ2）</title>
+  <title>株式評価ミニ（フェーズ2 修正版）</title>
   <style>
-    :root{--fg:#0f172a;--sub:#64748b;--bg:#f8fafc;--card:#fff}
-    *{box-sizing:border-box} body{margin:0;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--fg);background:var(--bg)}
-    .wrap{max-width:1100px;margin:28px auto;padding:16px}
-    .card{background:var(--card);border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.05);padding:16px}
-    h1{margin:0 0 12px} small{color:var(--sub)}
-    .row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-    .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-    input[type="text"],input[type="number"]{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px}
-    button{appearance:none;border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:10px 14px;cursor:pointer}
-    button.primary{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
-    .mt{margin-top:12px} .muted{color:var(--sub);font-size:13px}
-    .kpi{padding:12px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-    .kpi .lbl{color:var(--sub);font-size:12px} .kpi .val{font-size:22px;font-weight:600}
-    .pill{display:inline-block;border-radius:999px;padding:2px 10px;color:#fff;font-weight:600}
-    .pill.buy{background:#059669}.pill.hold{background:#f59e0b}.pill.sell{background:#e11d48}
-    pre{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);overflow:auto}
-    .secTitle{font-weight:600;margin:8px 0 6px}
+    :root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f8fafc;--card:#ffffff}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--fg);background:linear-gradient(#fff,#f8fafc)}
+    .wrap{max-width:1100px;margin:48px auto;padding:0 20px}
+    h1{font-size:28px;margin:0 0 20px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 16px}
+    .row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-top:12px}
+    .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+    .row-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+    label{font-size:12px;color:var(--muted);margin-bottom:6px;display:block}
+    input[type="text"],input[type="number"]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:#0ea5e9;color:#fff;cursor:pointer}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .muted{color:var(--muted)}
+    .log{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px}
+    .label-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:6px 0 4px}
+    .label-row>div{font-size:12px;color:var(--muted);text-align:center}
+    .right{ text-align:right }
   </style>
+</head>
+<body>
+  <div id="app" class="wrap"></div>
 
-  <!-- ライブラリ -->
   <script src="vendor/react.production.min.js" defer></script>
   <script src="vendor/react-dom.production.min.js" defer></script>
   <script src="vendor/xlsx.full.min.js" defer></script>
 
-  <script>
-    window.onerror = (m, s, l, c, e) => {
-      const msg = (e && (e.stack || e.message)) || m;
-      const box = document.getElementById('errors'); if (box) {
-        box.innerHTML = '<div style="color:#dc2626"><b>初期化エラー</b><pre>'+msg+'</pre></div>';
-      }
+  <script defer>
+  (() => {
+    const { useState, useMemo, useEffect } = React;
+
+    // ---------- 小物ユーティリティ ----------
+    const yearLabels = [2021,2022,2023,2024,2025];
+
+    const asArray = v => Array.isArray(v) ? v : [];
+    const clamp = (x, lo=0, hi=100) => Math.max(lo, Math.min(hi, x));
+    const mean = arr => { const a = asArray(arr).map(Number).filter(Number.isFinite); return a.length? a.reduce((s,v)=>s+v,0)/a.length : 0; };
+    const stdev = arr => { const a = asArray(arr).map(Number).filter(Number.isFinite); const m = mean(a); const v = a.length? a.reduce((s,v2)=>s+(v2-m)**2,0)/a.length : 0; return Math.sqrt(Math.max(0,v)); };
+    const median = arr => { const a = asArray(arr).map(Number).filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length) return 0; const m = Math.floor(a.length/2); return a.length%2? a[m] : (a[m-1]+a[m])/2; };
+    const iqr = arr => { const a = asArray(arr).map(Number).filter(Number.isFinite).sort((x,y)=>x-y); if(a.length<4) return Math.max(1e-9, stdev(a)); const q=p=>{const pos=(a.length-1)*p; const b=Math.floor(pos); const r=pos-b; return a[b] + r*(a[Math.min(b+1,a.length-1)]-a[b]);}; return Math.max(1e-9, q(0.75)-q(0.25)); };
+
+    const toNum = v => {
+      if (v===null || v===undefined || v==="") return 0;
+      const s = String(v).replace(/[\u3000\s,]/g, "");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
     };
-    window.onunhandledrejection = e => {
-      const msg = (e && e.reason && (e.reason.stack || e.reason.message)) || String(e.reason || e);
-      const box = document.getElementById('errors'); if (box) {
-        box.innerHTML = '<div style="color:#dc2626"><b>非同期エラー</b><pre>'+msg+'</pre></div>';
-      }
+
+    // 0.089 / 8.9 / "8.9%" いずれでも受け取り、常に「%の数値（8.9）」を返す
+    const parsePercent = v => {
+      if (v===null || v===undefined || v==="") return 0;
+      const s = String(v).trim();
+      if (s.endsWith("%")) return toNum(s.replace(/%/g,""));
+      const n = toNum(s);
+      // 1以下は小数（0.089 → 8.9）とみなす
+      return Math.abs(n) <= 1 ? n*100 : n;
     };
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const { createElement: h, useState, useEffect, useMemo, useRef } = React;
+    const prettyNum = x => (Number.isFinite(x) ? Number(x).toLocaleString(undefined,{maximumFractionDigits:2}) : "-");
+    const prettyPct = x => (Number.isFinite(x) ? (x*100).toFixed(2)+"%" : "-");
 
-      /* ---------- ユーティリティ ---------- */
-      const asArray = v => Array.isArray(v) ? v : [];
-      const clamp = (x, lo=0, hi=100) => Math.max(lo, Math.min(hi, x));
-      const mean = a => { const b = asArray(a).map(Number).filter(Number.isFinite); return b.length ? b.reduce((s,v)=>s+v,0)/b.length : 0; };
-      const stdev = a => { const b = asArray(a).map(Number).filter(Number.isFinite); const m=mean(b); const v=b.length? b.reduce((s,x)=>s+(x-m)**2,0)/b.length : 0; return Math.sqrt(Math.max(0,v)); };
+    // 線形回帰（x=1..n）
+    const linreg = arr => {
+      const y = asArray(arr).map(v => Number(v) || 0);
+      const n = y.length; if(n<2) return { slope:0, intercept:mean(y), se:0 };
+      const x = Array.from({length:n}, (_,i)=>i+1);
+      const mx = mean(x), my = mean(y);
+      const num = x.reduce((s,xi,i)=>s + (xi-mx)*(y[i]-my), 0);
+      const den = x.reduce((s,xi)=>s + (xi-mx)**2, 0);
+      const slope = den===0? 0 : num/den;
+      const intercept = my - slope*mx;
+      const residuals = y.map((yi,i)=> yi - (slope*x[i]+intercept));
+      const sse = residuals.reduce((a,b)=>a+b*b,0);
+      const se = Math.sqrt(Math.max(0, sse/Math.max(1,n-2)));
+      return { slope, intercept, se };
+    };
 
-      // 5年線形回帰（x=1..n）
-      const linreg = a => {
-        const y=asArray(a).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:mean(y),se:0};
-        const x=Array.from({length:n},(_,i)=>i+1); const mx=mean(x), my=mean(y);
-        const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)**2,0);
-        const slope=den===0?0:num/den; const intercept=my-slope*mx;
-        const residuals=y.map((yi,i)=>yi-(slope*x[i]+intercept));
-        const sse=residuals.reduce((a,b)=>a+b*b,0); const se=Math.sqrt(Math.max(0, sse/Math.max(1,n-2)));
-        return {slope,intercept,se};
-      };
+    // 参入障壁スコア（ROEは常に%）
+    const barrierScore = (roePctArray) => {
+      const arr = asArray(roePctArray).map(v => Number(v)||0);
+      if (arr.length < 5) return 0;
+      const last = Number.isFinite(arr[4]) ? arr[4] : 0; // 昨期[%]
+      const slopePctPerYear = linreg(arr).slope;        // [%/年]
+      return last/3 + slopePctPerYear/10;
+    };
 
-      // 参入障壁: 昨期ROE[%]/3 + 5年傾き/10
-      const barrierScore = roeArr => {
-        const a=asArray(roeArr); if(a.length<5) return 0;
-        const last = Number.isFinite(a[4]) ? a[4] : 0;
-        const slope = linreg(a).slope; // %/年
-        return last/3 + slope/10;
-      };
+    // ---------- Excel 読み込み ----------
+    // information シート: A=会社名, B=ティッカー, C=任意, D=普通株式数(億株)
+    const parseInfoSheet = (ws) => {
+      const json = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+      // 最初のヘッダ行は使わず、A,B,C,Dを固定で読む（運用中の情報シート仕様に合わせる）
+      const rows = [];
+      for (let r=1; r<json.length; r++){
+        const row = json[r];
+        if (!row || (!row[0] && !row[1])) continue;
+        rows.push({
+          company: String(row[0] ?? "").trim(),
+          ticker:  String(row[1] ?? "").trim(),
+          shares_oku: toNum(row[3]) // 億株
+        });
+      }
+      return rows;
+    };
 
-      /* ---------- 価格取得（前回の多段フォールバック） ---------- */
-      const QUOTE_API = 'https://stock-quote-api-opal.vercel.app/api/quote';
-      const normalizeTicker = (tk) => /^\d{4}$/.test(String(tk||'').trim()) ? String(tk).trim()+'.T' : String(tk||'').trim();
-      const fromYahoo = j => {
-        const q=j?.quoteResponse?.result?.[0];
-        const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
-        return Number.isFinite(px)?px:null;
-      };
-      const stooqUrl = (tk) => { let s=String(tk||'').toLowerCase(); if(s.endsWith('.t')) s=s.replace(/\.t$/,'.jp'); return `https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`; };
-
-      async function fetchQuoteAny(ticker){
-        const tk = normalizeTicker(ticker);
-        try{ // 1) Hosted
-          const r = await fetch(`${QUOTE_API}?ticker=${encodeURIComponent(tk)}`); if(!r.ok) throw 0;
-          const j = await r.json(); const px=Number(j.price ?? j.regularMarketPrice ?? j.c ?? j.last ?? j.close);
-          if(Number.isFinite(px)) return {price:px, source:`api(${j.source||'?'})`};
-        }catch(_){}
-        try{ // 2) Yahoo
-          const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tk)}`); if(!r.ok) throw 0;
-          const j=await r.json(); const px=fromYahoo(j); if(px!==null) return {price:px, source:'yahoo'};
-        }catch(_){}
-        try{ // 3) Stooq
-          const r=await fetch(stooqUrl(tk)); if(!r.ok) throw 0;
-          const text=await r.text(); const lines=text.trim().split(/\r?\n/); if(lines.length>=2){
-            const head=lines[0].split(','), row=lines[1].split(','); const idx=head.findIndex(h=>h.toLowerCase()==='close');
-            const close=idx>=0? Number(row[idx]) : Number(row[row.length-2]); if(Number.isFinite(close)) return {price:close, source:'stooq'};
+    // ---------- 価格 API（stooq をバックアップとして使用） ----------
+    async function fetchQuote(ticker){
+      if(!ticker) return { price:null, source:null };
+      const tk = String(ticker).trim();
+      // 1) vercelの hosted API（お持ちのエンドポイントに合わせてください）
+      try{
+        const url = `https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`;
+        const r = await fetch(url);
+        if (r.ok){
+          const j = await r.json();
+          const px = Number(j.price ?? j.regularMarketPrice ?? j.c ?? j.last ?? j.close);
+          if (Number.isFinite(px)) return { price:px, source: j.source? `api(${j.source})` : "api" };
+        }
+      }catch(_){}
+      // 2) stooq CSV
+      try{
+        let s = tk.toLowerCase();
+        if (s.endsWith('.t')) s = s.replace(/\.t$/, '.jp');
+        const url = `https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`;
+        const r = await fetch(url);
+        if (r.ok){
+          const text = await r.text();
+          const lines = text.trim().split(/\r?\n/);
+          if (lines.length >= 2){
+            const head = lines[0].split(',');
+            const row  = lines[1].split(',');
+            const idxClose = head.findIndex(h => h.toLowerCase()==='close');
+            const close = idxClose>=0 ? Number(row[idxClose]) : Number(row[row.length-2]);
+            if (Number.isFinite(close)) return { price:close, source:'stooq' };
           }
-        }catch(_){}
-        return {price:null, source:null};
+        }
+      }catch(_){}
+      return { price:null, source:null };
+    }
+
+    // ---------- アプリ ----------
+    function App(){
+      // 入力
+      const [company, setCompany] = useState("トヨタ自動車");
+      const [ticker, setTicker]   = useState("7203.T");
+      const [price, setPrice]     = useState(0);
+      const [shares, setShares]   = useState(0); // 株数（単位：株）。Excelは億株 → ×1e8 で取り込み。
+
+      const [op, setOp]   = useState([0,0,0,0,0]);    // 営業利益（億円）
+      const [fcf, setFcf] = useState([0,0,0,0,0]);    // FCF（億円）
+      const [roe, setRoe] = useState([0,0,0,0,0]);    // ROE（%）
+      const [opPrev, setOpPrev] = useState(0);
+      const [opThis, setOpThis] = useState(0);
+      const [opNext, setOpNext] = useState(0);
+
+      // Excel 読み込み済みデータ（information）
+      const [infoRows, setInfoRows] = useState([]);   // {company,ticker,shares_oku}
+      const [log, setLog] = useState([]);
+
+      const pushLog = s => setLog(x => [`${new Date().toLocaleTimeString()} ${s}`, ...x].slice(0,50));
+
+      // Excel -> information 読み込み
+      const handleExcel = async (e) => {
+        const file = e.target.files?.[0]; if(!file) return;
+        try{
+          const ab = await file.arrayBuffer();
+          const wb = XLSX.read(ab, { type:'array' });
+          const wsName = wb.SheetNames.find(n => n.toLowerCase()==='information') ?? wb.SheetNames[0];
+          const ws = wb.Sheets[wsName];
+          const rows = parseInfoSheet(ws);
+          setInfoRows(rows);
+          pushLog(`Excel loaded: ${wsName} / ${rows.length} rows`);
+          // 読み込み直後にも照合
+          autofillShares(rows, company, ticker);
+        }catch(err){
+          pushLog(`Excel read error: ${String(err)}`);
+        }
+      };
+
+      // 会社名/ティッカー変更時：Excelから株数を自動反映
+      useEffect(() => {
+        if (infoRows.length) autofillShares(infoRows, company, ticker);
+        // eslint-disable-next-line
+      }, [company, ticker]);
+
+      function autofillShares(rows, companyName, tk){
+        let hit = null;
+        const t = (tk??"").trim().toLowerCase();
+        const c = (companyName??"").trim();
+        // ティッカー優先 → 会社名完全一致
+        if (t) hit = rows.find(r => String(r.ticker||"").trim().toLowerCase() === t) || null;
+        if (!hit && c) hit = rows.find(r => String(r.company||"").trim() === c) || null;
+        if (hit && Number.isFinite(hit.shares_oku)){
+          const val = Math.max(0, hit.shares_oku) * 1e8; // 億株 → 株
+          setShares(val);
+          pushLog(`autofill shares: ${hit.shares_oku} 億株 → ${val.toLocaleString()} 株`);
+        }
       }
 
-      /* ---------- アプリ ---------- */
-      function App(){
-        const [name, setName] = useState('トヨタ自動車');
-        const [ticker, setTicker] = useState('7203.T');
-        const [price, setPrice] = useState(0);
-        const [src, setSrc] = useState('');
-        const [shares, setShares] = useState(0);
-        const [log, setLog] = useState([]);
-        const debounceRef = useRef(null);
+      // 価格更新
+      const handleRefresh = async () => {
+        const { price:px, source } = await fetchQuote(ticker);
+        if (px!==null){ setPrice(px); pushLog(`OK ${px} (${source})`); }
+        else { pushLog(`価格取得に失敗`); }
+      };
+      useEffect(()=>{ handleRefresh(); /* 初回 */ },[]);
 
-        // 5年データ（億円 / ROE=%）
-        const years=[2021,2022,2023,2024,2025];
-        const [op, setOp]   = useState([0,0,0,0,0]);
-        const [fcf, setFcf] = useState([0,0,0,0,0]);
-        const [roe, setRoe] = useState([0,0,0,0,0]);
-        const [opPrev, setOpPrev] = useState(0); // 前期
-        const [opThis, setOpThis] = useState(0); // 今期予想
-        const [opNext, setOpNext] = useState(0); // 来期予想（任意）
+      // ----- 計算（キャンバス仕様に合わせる） -----
+      // cohort（標準化用：アップロード済み企業群。なければ自分1社で近似）
+      const cohort = useMemo(() => {
+        const rows = infoRows.length ? infoRows : [{company,ticker,op}]; // 最低限OPだけ見る
+        const slopeDivs = rows.map(r => {
+          const lr = linreg(r.op||op); const m = Math.max(1e-9, mean(r.op||op));
+          return lr.slope / m;
+        });
+        const seInvs = rows.map(r => {
+          const lr = linreg(r.op||op); const m = Math.max(1e-9, mean(r.op||op));
+          return 1 / Math.max(1e-9, lr.se / m);
+        });
+        const med1 = median(slopeDivs), i1 = iqr(slopeDivs);
+        const rzArr = i1===0 ? slopeDivs.map(()=>0.5) : slopeDivs.map(x => (x-med1)/i1);
+        const min1 = Math.min(...rzArr), max1 = Math.max(...rzArr);
+        const min2 = Math.min(...seInvs), max2 = Math.max(...seInvs);
 
-        const logPush = s => setLog(l=>[s,...l].slice(0,200));
+        const seDivs = rows.map(r => { const lr=linreg(r.op||op); const m=Math.max(1e-9, mean(r.op||op)); return lr.se/m; });
+        const muSe = mean(seDivs), sdSe = Math.max(1e-9, stdev(seDivs));
+        const muSlope = mean(slopeDivs), sdSlope = Math.max(1e-9, stdev(slopeDivs));
+        return { med1, i1, min1, max1, min2, max2, muSe, sdSe, muSlope, sdSlope };
+      }, [infoRows, op, company, ticker]);
 
-        const getPrice = async (tkOverride)=>{
-          const tk = normalizeTicker(tkOverride ?? ticker);
-          logPush('fetch '+tk);
-          const {price:px, source} = await fetchQuoteAny(tk);
-          if(px!==null){ setPrice(px); setSrc(source||''); logPush(`OK ${px} (${source||'?'})`); }
-          else { logPush('NG price=null'); alert('価格取得に失敗しました'); }
-        };
+      // 自社の指標
+      const opReg   = useMemo(()=>linreg(op), [op]);
+      const opMean  = useMemo(()=>Math.max(1e-9, mean(op)), [op]);
+      const slopeDiv= opReg.slope / opMean;           // 成長（無次元）
+      const seDiv   = opReg.se    / opMean;           // ブレ（無次元）
+      const inv     = 1/Math.max(1e-9, seDiv);
 
-        // ティッカー自動取得
-        useEffect(()=>{
-          if(debounceRef.current) clearTimeout(debounceRef.current);
-          debounceRef.current=setTimeout(()=>getPrice(ticker), 400);
-          return ()=>{ if(debounceRef.current) clearTimeout(debounceRef.current); };
-        }, [ticker]);
+      const growthScore = useMemo(()=>{
+        const rz = cohort.i1===0 ? 0.5 : (slopeDiv - cohort.med1)/cohort.i1;
+        const mm = (cohort.max1 - cohort.min1)===0 ? 0.5 : (rz - cohort.min1)/(cohort.max1 - cohort.min1);
+        return clamp(mm*100, 0, 100);
+      }, [cohort, slopeDiv]);
 
-        // Excel 読込（information シート優先）
-        const onExcel = async (ev)=>{
-          const f=ev.target.files?.[0]; if(!f) return;
-          const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'});
-          const wsName=wb.SheetNames.includes('information')?'information':wb.SheetNames[0];
-          const rows=XLSX.utils.sheet_to_json(wb.Sheets[wsName],{defval:null});
-          if(Array.isArray(rows) && rows.length){
-            const r0=rows[0];
-            if(r0.Ticker||r0.ticker) setTicker(String(r0.Ticker ?? r0.ticker));
-            if(r0.Price||r0.price) setPrice(Number(r0.Price ?? r0.price)||0);
-            if(r0.Shares||r0.shares) setShares(Number(r0.Shares ?? r0.shares)||0);
-            // 5年系列（列名は Op_2021 / FCF_2021 / ROE_2021 などを想定）
-            const getN = v => Number(v)||0;
-            setOp(years.map(y=>getN(r0[`Op_${y}`])));
-            setFcf(years.map(y=>getN(r0[`FCF_${y}`])));
-            setRoe(years.map(y=>{ const v=r0[`ROE_${y}`]; if(v==null) return 0; const s=String(v); return s.includes('%')? Number(s.replace('%','')) : Number(v)||0; }));
-            setOpPrev(getN(r0['Op_2025'])); setOpThis(getN(r0['Op_2026'])); setOpNext(getN(r0['Op_2027']));
-            logPush(`Excel loaded: ${wsName} / ${rows.length} rows`);
-          }else{
-            logPush('Excel parse: no rows');
-          }
-        };
+      const breScore = useMemo(()=>{
+        const mm = (cohort.max2 - cohort.min2)===0 ? 0.5 : (inv - cohort.min2)/(cohort.max2 - cohort.min2);
+        return clamp(mm*100, 0, 100);
+      }, [cohort, inv]);
 
-        useEffect(()=>{ getPrice(ticker); }, []);
+      const opTrendScore = ((growthScore + breScore) / 2) * 0.15; // 0..15
+      const fundGenScore = asArray(fcf).filter(x => (Number(x)||0) > 0).length; // 0..5
+      const barrier      = barrierScore(roe); // 例：4.x など
 
-        /* ---------- 指標計算 ---------- */
-        const opReg = useMemo(()=>linreg(op), [op]);
-        const opMean = useMemo(()=>Math.max(1e-9, mean(op)), [op]);
-        const slopeDiv = opReg.slope / opMean;        // 成長（相対）
-        const seDiv    = opReg.se    / opMean;        // ブレ（相対）
-        const growthScore = clamp((slopeDiv + 0.5) * 100, 0, 100); // 簡易: 単体会社なので 0〜100に射影
-        const breScore    = clamp((1/Math.max(1e-9,seDiv)) / 10 * 100, 0, 100); // 簡易スケール
-        const opTrendScore = ((growthScore + breScore)/2) * 0.15; // 0..15
-        const fundGenScore = asArray(fcf).filter(x => (Number(x)||0) > 0).length; // 0..5
-        const barrier = barrierScore(roe); // 0..?
-        const investScore = opTrendScore + fundGenScore + barrier;
-        const labelInvest = investScore<8?'売るべき企業': investScore<10?'様子見企業': investScore<12?'よい企業':'すばらしい企業';
+      // r,gN
+      const seStd    = (seDiv    - cohort.muSe   ) / cohort.sdSe;
+      const slopeStd = (slopeDiv - cohort.muSlope) / cohort.sdSlope;
+      const r        = (seStd + 7) / 100;
+      const gN       = (slopeStd + 2.5) / 100;
 
-        // r, g, gN（単体スケーリングの簡易版）
-        const r = ( ( (seDiv - 0) / Math.max(1e-9, stdev([seDiv,0,0.05])) ) + 7 ) / 100; // ≒7%付近
-        const gN = ( ( (slopeDiv - 0) / Math.max(1e-9, stdev([slopeDiv,0,0.02])) ) + 2.5 ) / 100;
+      // 5年後OP→目標株価（簡易）
+      const g = (opNext>0 && opPrev>0) ? Math.sqrt(opNext/opPrev)-1 : (opThis>0 && opPrev>0) ? opThis/opPrev-1 : 0;
+      const op5 = opPrev * Math.pow(1+g,5);
+      const ni5 = 0.65 * op5;
+      const denom = Math.max(1e-6, r - gN);
+      const tv5 = ni5 * (1 + gN) / denom;
+      const pv  = tv5 / Math.pow(1+r,5);
+      const target = shares>0 ? pv / shares : 0;
 
-        const g = useMemo(()=>{
-          if(opNext>0 && opPrev>0) return Math.sqrt(opNext/opPrev)-1;
-          if(opThis>0 && opPrev>0) return opThis/opPrev-1;
-          return 0;
-        }, [opPrev, opThis, opNext]);
+      const investScore = opTrendScore + fundGenScore + barrier;
 
-        const op5 = opPrev * Math.pow(1+g,5);
-        const ni5 = 0.65 * op5;
-        const denom = Math.max(1e-6, r - gN);
-        const tv5 = ni5 * (1 + gN) / denom;
-        const pv  = tv5 / Math.pow(1+r,5);
-        const targetPrice = (shares||0) > 0 ? pv / shares : 0;
-        const verdict = price>0 ? (targetPrice/price>=2?'buy': targetPrice/price>=1?'hold':'sell') : 'hold';
+      // ---------- UI ----------
+      const Num = ({value, onChange, placeholder}) =>
+        React.createElement("input", {type:"text", value:(value??"") , placeholder, onChange:e=>onChange(toNum(e.target.value)), className:"right"});
 
-        const fmt = x => Number.isFinite(x) ? Number(x).toLocaleString() : '-';
-        const pct = x => Number.isFinite(x) ? (x*100).toFixed(2)+'%' : '-';
+      const Pct = ({value, onChange, placeholder}) =>
+        React.createElement("input", {type:"text", value:(value===0?0:(value??"")), placeholder, onChange:e=>onChange(parsePercent(e.target.value)), className:"right"});
 
-        /* ---------- UI ---------- */
-        const Num = ({v,onC,ph}) => h('input',{type:'number',value:(v===0?0:(v??'')),onChange:e=>onC(Number(e.target.value)||0),placeholder:ph});
-        const NumPct = ({v,onC,ph}) => h('input',{type:'number',value:(v===0?0:(v??'')),onChange:e=>onC(Number(e.target.value)||0),placeholder:ph});
-
-        return h('div',{className:'wrap'},
-          h('h1',null,'株式評価ミニ（最小構成 → フェーズ2） ',h('small',null,'React + XLSX + 価格API + 指標計算')),
-
-          // 基本カード
-          h('div',{className:'card'},
-            h('div',{className:'row'},
-              h('div',null, h('div',{className:'muted'},'会社名'), h('input',{type:'text',value:name,onChange:e=>setName(e.target.value)})),
-              h('div',null, h('div',{className:'muted'},'ティッカー（例 7203.T）'), h('input',{type:'text',value:ticker,onChange:e=>setTicker(e.target.value)})),
-              h('div',null, h('div',{className:'muted'},'Excel 読込（任意）'), h('input',{type:'file',accept:'.xlsx,.xls',onChange:onExcel}))
+      return (
+        React.createElement(React.Fragment, null,
+          React.createElement("h1", null, "株式評価ミニ（最小構成 → フェーズ2）"),
+          React.createElement("div", {className:"card"},
+            React.createElement("div", {className:"row"},
+              React.createElement("div", null,
+                React.createElement("label", null, "会社名"),
+                React.createElement("input", {type:"text", value:company, onChange:e=>setCompany(e.target.value)})
+              ),
+              React.createElement("div", null,
+                React.createElement("label", null, "ティッカー（例 7203.T）"),
+                React.createElement("input", {type:"text", value:ticker, onChange:e=>setTicker(e.target.value)})
+              ),
+              React.createElement("div", null,
+                React.createElement("label", null, "Excel 読込（information シート）"),
+                React.createElement("input", {type:"file", accept:".xlsx,.xls", onChange:handleExcel})
+              ),
+              React.createElement("div", null)
             ),
-            h('div',{className:'mt grid2'},
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'現在株価'), h('div',{className:'val'}, fmt(price))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'普通株式数（任意）'), h('input',{type:'number',value:shares||'',onChange:e=>setShares(Number(e.target.value)||0)})),
-            ),
-            h('div',{className:'mt'},
-              h('button',{className:'primary',onClick:()=>getPrice(ticker)},'価格を更新'),
-              h('span',{className:'muted',style:{marginLeft:10}}, src?`自動取得: ${src}`:' ')
-            ),
-            h('div',{id:'errors',className:'mt'})
+
+            React.createElement("div", {className:"row-2"},
+              React.createElement("div", null,
+                React.createElement("label", null, "現在株価"),
+                React.createElement("input", {type:"text", className:"right", value:price, onChange:e=>setPrice(toNum(e.target.value))}),
+                React.createElement("div", {style:{marginTop:8}}, 
+                  React.createElement("button",{className:"btn", onClick:handleRefresh},"価格を更新"),
+                  React.createElement("span",{className:"muted",style:{marginLeft:8}}, "自動取得：api/stooq")
+                )
+              ),
+              React.createElement("div", null,
+                React.createElement("label", null, "普通株式数（任意）"),
+                React.createElement("input", {type:"text", className:"right", value: shares? shares.toLocaleString() : "", placeholder:"例 1,000,000,000", onChange:e=>setShares(toNum(e.target.value))})
+              )
+            )
           ),
 
-          // 5年入力
-          h('div',{className:'card mt'},
-            h('div',{className:'secTitle'},'過去5年 営業利益（億円）'),
-            h('div',{className:'muted'}, years.map(y=>h('span',{style:{width:60,display:'inline-block',textAlign:'center'}}, y))),
-            h('div',{className:'grid5 mt'}, years.map((y,i)=>h(Num,{key:i,v:op[i],onC:n=>setOp(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+          // 5年系列
+          React.createElement("div", {className:"card", style:{marginTop:16}},
+            React.createElement("div", {className:"muted", style:{marginBottom:8}}, "過去5年 営業利益（億円）"),
+            React.createElement("div", {className:"label-row"}, yearLabels.map(y=>React.createElement("div",{key:y}, y))),
+            React.createElement("div", {className:"row-5"},
+              op.map((v,i)=>React.createElement(Num,{key:i, value:v, onChange:nv=>setOp(a=>a.map((x,j)=>j===i?nv:x)), placeholder:String(yearLabels[i])}))
+            ),
 
-            h('div',{className:'secTitle mt'},'過去5年 FCF（億円）'),
-            h('div',{className:'grid5'}, years.map((y,i)=>h(Num,{key:i,v:fcf[i],onC:n=>setFcf(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+            React.createElement("div", {className:"muted", style:{margin:"14px 0 8px"}}, "過去5年 FCF（億円）"),
+            React.createElement("div", {className:"label-row"}, yearLabels.map(y=>React.createElement("div",{key:y}, y))),
+            React.createElement("div", {className:"row-5"},
+              fcf.map((v,i)=>React.createElement(Num,{key:i, value:v, onChange:nv=>setFcf(a=>a.map((x,j)=>j===i?nv:x)), placeholder:String(yearLabels[i])}))
+            ),
 
-            h('div',{className:'secTitle mt'},'過去5年 ROE（%）'),
-            h('div',{className:'grid5'}, years.map((y,i)=>h(NumPct,{key:i,v:roe[i],onC:n=>setRoe(a=>a.map((x,j)=>j===i?n:x)),ph:String(y)}))),
+            React.createElement("div", {className:"muted", style:{margin:"14px 0 8px"}}, "過去5年 ROE（%）"),
+            React.createElement("div", {className:"label-row"}, yearLabels.map(y=>React.createElement("div",{key:y}, y))),
+            React.createElement("div", {className:"row-5"},
+              roe.map((v,i)=>React.createElement(Pct,{key:i, value:v, onChange:nv=>setRoe(a=>a.map((x,j)=>j===i?nv:x)), placeholder:String(yearLabels[i])}))
+            ),
 
-            h('div',{className:'secTitle mt'},'OP（前期/今期/来期 予想）'),
-            h('div',{className:'grid3'},[
-              h('div',null,h('div',{className:'muted'},'前期OP'), h(Num,{v:opPrev,onC:setOpPrev})),
-              h('div',null,h('div',{className:'muted'},'今期OP予想'), h(Num,{v:opThis,onC:setOpThis})),
-              h('div',null,h('div',{className:'muted'},'来期OP予想（任意）'), h(Num,{v:opNext,onC:setOpNext})),
-            ]),
+            React.createElement("div", {className:"muted", style:{margin:"14px 0 8px"}}, "OP（前期/今期/来期 予想）"),
+            React.createElement("div", {className:"row-5"},
+              React.createElement(Num,{value:opPrev, onChange:setOpPrev, placeholder:"前期OP"}),
+              React.createElement(Num,{value:opThis, onChange:setOpThis, placeholder:"今期OP予想"}),
+              React.createElement(Num,{value:opNext, onChange:setOpNext, placeholder:"来期OP予想（任意）"}),
+              React.createElement("div", null),
+              React.createElement("div", null)
+            )
           ),
 
-          // 投資スコア
-          h('div',{className:'card mt'},
-            h('div',{className:'grid3'},
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'投資スコア'), h('div',{className:'val'}, investScore.toFixed(2)), h('div',{className:'muted'}, `営業トレンド ${opTrendScore.toFixed(2)} / 資金創出 ${fundGenScore.toFixed(2)} / 参入障壁 ${barrier.toFixed(2)}`)),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'営業成長（相対）'), h('div',{className:'val'}, slopeDiv.toFixed(4))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'ブレ（相対SE）'), h('div',{className:'val'}, seDiv.toFixed(4))),
-            ),
+          // 診断ログ（計算が正しいかをまず確認）
+          React.createElement("div", {className:"card", style:{marginTop:16}},
+            React.createElement("div",{className:"muted", style:{marginBottom:8}}, "診断ログ（まずはここで数値をご確認ください）"),
+            React.createElement("div",{className:"log"},
+              `opTrendScore: ${opTrendScore.toFixed(2)}（0..15）\n` +
+              `fundGenScore: ${fundGenScore.toFixed(2)}\n` +
+              `barrier:      ${barrier.toFixed(2)}  ← 昨期ROE[%]/3 + ROE傾き[%/年]/10\n` +
+              `investScore : ${investScore.toFixed(2)}\n\n` +
+              `r:  ${(r*100).toFixed(2)}%\n` +
+              `gN: ${(gN*100).toFixed(2)}%\n\n` +
+              `targetPrice: ${prettyNum(target)}\n`
+            )
           ),
 
-          // 割安度
-          h('div',{className:'card mt'},
-            h('div',{className:'grid3'},
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'g（年平均成長率）'), h('div',{className:'val'}, pct(g))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'r（期待収益率）'), h('div',{className:'val'}, pct(r))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'gN（標準化成長）'), h('div',{className:'val'}, pct(gN))),
-            ),
-            h('div',{className:'grid3 mt'},
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'目標株価'), h('div',{className:'val'}, fmt(targetPrice))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'現在株価'), h('div',{className:'val'}, fmt(price))),
-              h('div',{className:'kpi'}, h('div',{className:'lbl'},'判定'), h('div',{className:'val'}, h('span',{className:`pill ${verdict==='buy'?'buy':verdict==='sell'?'sell':'hold'}`}, verdict==='buy'?'買い': verdict==='sell'?'売り':'中立'))),
-            ),
-            h('div',{className:'muted mt'},'注: r=(標準化SE+7)/100、gN=(標準化傾き+2.5)/100 は簡易版スケーリング。参入障壁=昨期ROE[%]/3 + 5年傾き/10。'),
-          ),
-
-          // ログ
-          h('div',{className:'card mt'},
-            h('div',{className:'muted'},'ログ（新しい順）'),
-            h('pre',null, log.join('\n')||'(なし)')
+          React.createElement("div", {className:"card", style:{marginTop:16}},
+            React.createElement("div",{className:"muted", style:{marginBottom:8}}, "ログ"),
+            React.createElement("div",{className:"log"}, log.join("\n"))
           )
-        );
-      }
+        )
+      );
+    }
 
-      const root = ReactDOM.createRoot(document.getElementById('app'));
-      root.render(React.createElement(App));
-    });
+    ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
+  })();
   </script>
-</head>
-<body>
-  <div id="app" class="wrap">読み込み中…</div>
 </body>
 </html>
