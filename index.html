@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（フェーズ3・安定版）</title>
+  <title>株式評価ミニ（フェーズ3・安定版＋堅牢価格取得）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -41,7 +41,7 @@
     .searchrow{display:grid;grid-template-columns:1fr 180px;gap:12px}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
   </style>
-  <!-- ライブラリ（CDN） -->
+  <!-- React / ReactDOM / xlsx（CDN） -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
@@ -65,97 +65,70 @@
     const stdev=a=>{ const m=mean(a); const v=a.length? a.reduce((s,v)=>s+(v-m)**2,0)/a.length:0; return Math.sqrt(v); };
     const median=a=>{ const b=[...a].sort((x,y)=>x-y); const n=b.length; if(!n) return 0; const m=Math.floor(n/2); return n%2? b[m] : (b[m-1]+b[m])/2; };
     const iqr=a=>{ const b=[...a].sort((x,y)=>x-y); const q=p=>{ const pos=(b.length-1)*p; const i=Math.floor(pos); const r=pos-i; return b[i]+r*(b[Math.min(i+1,b.length-1)]-b[i]); }; return Math.max(1e-9,q(0.75)-q(0.25)); };
-    const linreg=(arr)=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope= den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
 
-    /* ===== 株価取得：堅牢版（バックオフ・タイムアウト・キャッシュ・集約・ローテ） ===== */
-    const quoteCache = new Map(); // key: ticker, value: {price, source, ts}
-    const inflight = new Map();   // key: ticker, value: Promise
-    const CACHE_TTL_MS = 60_000;
+    /* === 堅牢な株価取得：フォールバック + リトライ + キャッシュ === */
+    const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
+    const jitter = (base=140)=> base + Math.floor(Math.random()*180); // 140~320ms
+    const qCache = new Map(); // key: ticker(lower) -> {price, source, at}
+    const TTL = 5*60*1000;    // 5分
 
-    const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
-    const jitter = (ms)=> ms + Math.floor(Math.random()*250); // 少しバラす
-
-    function withTimeout(promise, ms=6000){
-      const ctrl=new AbortController();
-      const t=setTimeout(()=>ctrl.abort(), ms);
-      // promise が fetch の場合のみ signal を渡せるので、wrap 側で使う
-      return {signal:ctrl.signal, settle: (res)=>{ clearTimeout(t); return res; }};
+    // 3つのフェッチャー
+    async function fetchHosted(tk){
+      const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`);
+      if(!r.ok) throw new Error("hosted bad");
+      const j=await r.json(); const px=Number(j.price ?? j.c ?? j.close);
+      if(!Number.isFinite(px)) throw new Error("hosted no price");
+      return {price:px, source:`api(${j.source||"hosted"})`};
+    }
+    async function fetchYahoo(tk){
+      const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tk)}`,{mode:"cors"});
+      if(!r.ok) throw new Error("yahoo bad");
+      const j=await r.json(); const q=j?.quoteResponse?.result?.[0];
+      const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
+      if(!Number.isFinite(px)) throw new Error("yahoo no price");
+      return {price:px, source:"yahoo"};
+    }
+    async function fetchStooq(tk){
+      let s=tk.toLowerCase(); if(s.endsWith(".t")) s=s.replace(/\.t$/,".jp");
+      const r=await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`,{mode:"cors"});
+      if(!r.ok) throw new Error("stooq bad");
+      const t=await r.text(); const lines=t.trim().split(/\r?\n/);
+      if(lines.length<2) throw new Error("stooq no row");
+      const head=lines[0].split(","); const row=lines[1].split(",");
+      const idx=head.findIndex(h=>h.toLowerCase()==="close");
+      const px=Number(row[idx>=0?idx:row.length-2]);
+      if(!Number.isFinite(px)) throw new Error("stooq no price");
+      return {price:px, source:"stooq"};
     }
 
-    // 実際の 1 リクエスト
-    async function tryFetch(provider, tk){
-      const normYahoo = tk; // 7203.T などはそのまま
-      let stooq = tk.toLowerCase(); if(stooq.endsWith(".t")) stooq = stooq.replace(/\.t$/,".jp");
+    async function fetchQuoteRobust(ticker){
+      if(!ticker) return {price:null, source:null};
+      const tk=(ticker||"").trim();
+      const key=tk.toLowerCase();
+      // キャッシュ
+      const hit=qCache.get(key);
+      const now=Date.now();
+      if(hit && now-hit.at < TTL) return {price:hit.price, source:hit.source+" (cache)"};
 
-      if(provider==="hosted"){ // 共有 API（無料/低レート対策）
-        const {signal, settle} = withTimeout(null, 6000);
-        const r = await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`, {signal}).catch(()=>null);
-        settle();
-        if(r && r.ok){
-          const j = await r.json().catch(()=> ({}));
-          const px = Number(j.price ?? j.c ?? j.close);
-          if(Number.isFinite(px)) return {price:px, source:`api(${j.source||"hosted"})`};
-        }
-      }
-      if(provider==="yahoo"){
-        const {signal, settle} = withTimeout(null, 6000);
-        const r = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(normYahoo)}`, {mode:"cors", signal}).catch(()=>null);
-        settle();
-        if(r && r.ok){
-          const j = await r.json().catch(()=> ({}));
-          const q = j?.quoteResponse?.result?.[0];
-          const px = Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
-          if(Number.isFinite(px)) return {price:px, source:"yahoo"};
-        }
-      }
-      if(provider==="stooq"){
-        const {signal, settle} = withTimeout(null, 6000);
-        const r = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(stooq)}&f=sd2t2ohlcv&h&e=csv`, {mode:"cors", signal}).catch(()=>null);
-        settle();
-        if(r && r.ok){
-          const t = await r.text().catch(()=> "");
-          const lines=t.trim().split(/\r?\n/);
-          if(lines.length>=2){
-            const head=lines[0].split(","), row=lines[1].split(",");
-            const idx=head.findIndex(h=>h.toLowerCase()==="close");
-            const px=Number(row[idx>=0?idx:row.length-2]);
-            if(Number.isFinite(px)) return {price:px, source:"stooq"};
+      const fetchers=[fetchHosted, fetchYahoo, fetchStooq];
+      const maxRetry=3;
+      for(let attempt=0; attempt<maxRetry; attempt++){
+        for(const f of fetchers){
+          try{
+            const res=await f(tk);
+            qCache.set(key,{...res, at:Date.now()});
+            return res;
+          }catch(_err){
+            // 次のフェッチャーへ
           }
         }
+        // 次のリトライまで待機（指数バックオフ＋ジッター）
+        await sleep(250*Math.pow(1.6,attempt) + jitter());
       }
       return {price:null, source:null};
     }
 
-    // 各プロバイダを最大2回ずつリトライしながら順に試行
-    async function fetchQuoteRobust(tk){
-      // キャッシュ
-      const now=Date.now();
-      const hit=quoteCache.get(tk);
-      if(hit && (now-hit.ts)<CACHE_TTL_MS) return {price:hit.price, source:hit.source, cached:true};
-
-      // 同時実行集約
-      if(inflight.has(tk)) return inflight.get(tk);
-
-      const p = (async()=>{
-        const providers = ["hosted","yahoo","stooq"];
-        for(const provider of providers){
-          let delay=300;
-          for(let i=0;i<2;i++){ // 最大2回
-            const res = await tryFetch(provider, tk);
-            if(Number.isFinite(res.price)) {
-              quoteCache.set(tk, {price:res.price, source:res.source, ts:Date.now()});
-              return res;
-            }
-            await sleep(jitter(delay));
-            delay *= 2; // 指数バックオフ
-          }
-        }
-        return {price:null, source:null};
-      })().finally(()=> inflight.delete(tk));
-
-      inflight.set(tk, p);
-      return p;
-    }
+    const linreg=(arr)=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope= den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
 
     function App(){
       const years=[2021,2022,2023,2024,2025];
@@ -177,8 +150,8 @@
 
       async function refreshPrice(){
         const tk=(ticker||"").trim(); if(!tk){ appendLog("ticker が空です"); return; }
-        const {price:px,source,cached}=await fetchQuoteRobust(tk);
-        if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source}${cached?"/cache":""})`); }
+        const {price:px,source}=await fetchQuoteRobust(tk);
+        if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
         else{ appendLog("価格の自動取得に失敗しました"); }
       }
 
@@ -299,7 +272,7 @@
 
         // 割安度の判定（目標株価 vs 現在株価）
         const ratio = price>0? target/price : 0;
-        const valVerdict = ratio>2 ? "great" : ratio>1 ? "neu" : "sell"; // great/neu/sell を色に直結
+        const valVerdict = ratio>2 ? "great" : ratio>1 ? "neu" : "sell"; // 色クラス
         const valLabel = ratio>2 ? "割安" : ratio>1 ? "様子見" : "売るべき";
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel};
@@ -414,63 +387,66 @@
               h("div",{className:"grid5"}, roe.map((v,i)=>h("input",{key:i,value:Number.isFinite(roe[i])?Number(roe[i]).toFixed(2):"",onChange:e=>setRoe(roe.map((x,j)=> j===i? parsePercentCell(e.target.value):x)),inputMode:"decimal"})))
             ),
 
-            <!-- 予想OP -->
-            <div class="card" style="margin-bottom:16px">
-              <div class="label">OP（前期/今期/来期 予想）</div>
-              <div class="row3">
-                <div><div class="label">前期OP（億円）※2025実績</div><input class="disabled" value="" id="op-last" disabled></div>
-                <div><div class="label">今期OP予想（億円）※Op_2026 を自動反映</div><input id="op-now"></div>
-                <div><div class="label">来期OP予想（億円・任意）※Op_2027 を自動反映</div><input id="op-next"></div>
-              </div>
-            </div>
+            // 予想OP
+            h("div",{className:"card",style:{marginBottom:16}},
+              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
+              h("div",{className:"row3"},
+                h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value: op[4]||0, disabled:true})),
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+              )
+            ),
 
-            <script>
-              // 直上の素のHTML入力を React の state と同期（アクセシビリティ簡便化）
-              // ※React内の入力はそのまま。ここはラベル通りの見栄え維持のための軽い同期
-            </script>
+            h("div",{className:"row",style:{marginBottom:16}},
+              h("div",{className:"card"},
+                h("div",{className:"label"},"投資スコア（魅力度の合計）"),
+                h("div",{className:"kpi"},
+                  h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
+                ),
+                /* 合計と評価は改行し、評価はスクリーナーと同色 */
+                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
+                h("div",{style:{marginTop:8}}, h("span",{className:"pill "+(calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great")}, (calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業")))
+              ),
 
-            <div class="row" style="margin-bottom:16px">
-              <div class="card">
-                <div class="label">投資スコア（魅力度の合計）</div>
-                <div class="kpi">
-                  <div class="box"><div class="muted">営業トレンド</div><div><b id="k-optrend"></b></div></div>
-                  <div class="box"><div class="muted">資金創出（FCF>0年数）</div><div><b id="k-fund"></b></div></div>
-                  <div class="box"><div class="muted">参入障壁</div><div><b id="k-barrier"></b></div></div>
-                </div>
-                <div style="margin-top:10px;font-size:22px;font-weight:700">合計：<span id="k-total"></span></div>
-                <div style="margin-top:8px"><span id="k-grade" class="pill">-</span></div>
-              </div>
+              h("div",{className:"card"},
+                h("div",{className:"label"},"割安度（目標株価と比較）"),
+                h("div",{className:"kpi"},
+                  h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
+                ),
+                /* 目標株価 vs 現在株価 の評価 */
+                h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
+              )
+            ),
 
-              <div class="card">
-                <div class="label">割安度（目標株価と比較）</div>
-                <div class="kpi">
-                  <div class="box"><div class="muted">期待収益率 r</div><div><b id="k-r"></b></div></div>
-                  <div class="box"><div class="muted">成長率 gN（標準化）</div><div><b id="k-gn"></b></div></div>
-                  <div class="box"><div class="muted">目標株価</div><div><b id="k-target"></b></div></div>
-                </div>
-                <div style="margin-top:10px"><span id="k-value" class="pill">-</span></div>
-              </div>
-            </div>
+            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
+          ),
 
-            <div class="card"><div class="label">ログ（新しい順）</div><div class="log" id="log"></div></div>
-          </div>
-
-          <!-- 右：一覧（常に全件表示、投資スコア降順） -->
-          <div>
-            <div class="card">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <div style="font-weight:700">スクリーナー（投資スコア順・全件表示）</div>
-                <div><span class="tag" id="cnt-great"></span> <span class="tag" id="cnt-good"></span></div>
-              </div>
-              <div class="hdr"><div>会社名</div><div>ティッカー</div><div>投資スコア</div><div>評価</div></div>
-              <div class="list" id="list"></div>
-            </div>
-          </div>
-        </div>
+          // 右：一覧（常に全件表示、投資スコア降順）
+          h("div",null,
+            h("div",{className:"card"},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                h("div",{style:{fontWeight:700}},"スクリーナー（投資スコア順・全件表示）"),
+                h("div",null, h("span",{className:"tag"},"すばらしい: "+counts.great)," ",h("span",{className:"tag"},"よい: "+counts.good))
+              ),
+              h("div",{className:"hdr"}, h("div",null,"会社名"), h("div",null,"ティッカー"), h("div",null,"投資スコア"), h("div",null,"評価")),
+              h("div",{className:"list"},
+                ranked.map(r=> h("div",{key:r.id,className:"rowitem",onClick:()=>fillFromRow(r,true),title:"クリックでフォームへ反映"},
+                  h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, (r.op||[]).slice(-2)[0] ? "OP trendあり" : "")),
+                  h("div",null,r.ticker||"-"),
+                  h("div",null,(r._s.investScore).toFixed(2)),
+                  h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
+                ))
+              )
+            )
+          )
+        )
       );
     }
 
-    // ---- React render ----
     ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
   })();
   </script>
