@@ -73,14 +73,14 @@
     const TTL=5*60*1000;            // 5分
 
     async function fetchHosted(tk){
-      const r=await fetch(\`https://stock-quote-api-opal.vercel.app/api/quote?ticker=\${encodeURIComponent(tk)}\`);
+      const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=\${encodeURIComponent(tk)}`);
       if(!r.ok) throw new Error("hosted bad");
       const j=await r.json(); const px=Number(j.price ?? j.c ?? j.close);
       if(!Number.isFinite(px)) throw new Error("hosted no price");
-      return {price:px,source:\`api(\${j.source||"hosted"})\`};
+      return {price:px,source:`api(\${j.source||"hosted"})`};
     }
     async function fetchYahoo(tk){
-      const r=await fetch(\`https://query1.finance.yahoo.com/v7/finance/quote?symbols=\${encodeURIComponent(tk)}\`,{mode:"cors"});
+      const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=\${encodeURIComponent(tk)}`,{mode:"cors"});
       if(!r.ok) throw new Error("yahoo bad");
       const j=await r.json(); const q=j?.quoteResponse?.result?.[0];
       const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
@@ -89,7 +89,7 @@
     }
     async function fetchStooq(tk){
       let s=tk.toLowerCase(); if(s.endsWith(".t")) s=s.replace(/\\.t$/,".jp");
-      const r=await fetch(\`https://stooq.com/q/l/?s=\${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv\`,{mode:"cors"});
+      const r=await fetch(`https://stooq.com/q/l/?s=\${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`,{mode:"cors"});
       if(!r.ok) throw new Error("stooq bad");
       const t=await r.text(); const lines=t.trim().split(/\\r?\\n/);
       if(lines.length<2) throw new Error("stooq no row");
@@ -129,12 +129,12 @@
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
 
-      const appendLog=(s)=>setLog(p=>\`\${p?p+"\\n":""}\${s}\`);
+      const appendLog=(s)=>setLog(p=>`\${p?p+"\\n":""}\${s}`);
 
       async function refreshPrice(){
         const tk=(ticker||"").trim(); if(!tk){ appendLog("ticker が空です"); return; }
         const {price:px,source}=await fetchQuoteRobust(tk);
-        if(px!=null){ setPrice(px); appendLog(\`OK \${px} (\${source})\`); }
+        if(px!=null){ setPrice(px); appendLog(`OK \${px} (\${source})`); }
         else{ appendLog("価格の自動取得に失敗しました"); }
       }
 
@@ -148,9 +148,9 @@
 
         const rows=asArr(json).map((r,idx)=>{
           const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
-          const getOp=y=> toNum(g(\`Op_\${y}\`,\`OP_\${y}\`));
-          const getFcf=y=> toNum(g(\`FCF_\${y}\`));
-          const getRoe=y=> parsePercentCell(g(\`ROE_\${y}\`));
+          const getOp=y=> toNum(g(`Op_\${y}`,`OP_\${y}`));
+          const getFcf=y=> toNum(g(`FCF_\${y}`));
+          const getRoe=y=> parsePercentCell(g(`ROE_\${y}`));
           const shareOku= toNum(g("share","Shares_Oku","share_oku"));      // D列 'share'（億株）
           const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
           const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
@@ -170,10 +170,10 @@
         }).filter(r=>(r.name||"").trim()!=="");
 
         setDataset(rows);
-        appendLog(\`Excel loaded: \${wsName} / \${rows.length} rows\`);
+        appendLog(`Excel loaded: \${wsName} / \${rows.length} rows`);
         if(rows.length){
           const a=rows[0];
-          appendLog(\`→ 初期反映: \${a.name} (\${a.ticker}) / Op_2026=\${a.opNowEst}, Op_2027=\${a.opNextEst}, share=\${a.sharesOku}億株\`);
+          appendLog(`→ 初期反映: \${a.name} (\${a.ticker}) / Op_2026=\${a.opNowEst}, Op_2027=\${a.opNextEst}, share=\${a.sharesOku}億株`);
           fillFromRow(a, /*fetch*/true);
         }
       }
