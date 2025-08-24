@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（フェーズ3・安定版＋堅牢価格取得｜UIスワップ版）</title>
+  <title>株式評価ミニ（フェーズ3・安定版＋堅牢価格取得）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -60,7 +60,7 @@
     const clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
     const pretty=(n)=>Number.isFinite(n)?n.toLocaleString():"-";
     const prettyPct=(x)=>Number.isFinite(x)?(x.toFixed(2)+"%"):"-";
-    const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \\u3000]/g,""); const m=s.match(/^([-+]?\\d+(\\.\\d+)?)/); return m? Number(m[1]):0; };
+    const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
     const parsePercentCell=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number"){ return Math.abs(v)<=1? v*100 : v; } const s=String(v).trim(); if(s.endsWith("%")) return toNum(s.replace("%","")); const n=toNum(s); return Math.abs(n)<=1? n*100 : n; };
     const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length:0;
     const stdev=a=>{ const m=mean(a); const v=a.length? a.reduce((s,v)=>s+(v-m)**2,0)/a.length:0; return Math.sqrt(v); };
@@ -73,14 +73,14 @@
     const TTL=5*60*1000;            // 5分
 
     async function fetchHosted(tk){
-      const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=\${encodeURIComponent(tk)}`);
+      const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`);
       if(!r.ok) throw new Error("hosted bad");
       const j=await r.json(); const px=Number(j.price ?? j.c ?? j.close);
       if(!Number.isFinite(px)) throw new Error("hosted no price");
-      return {price:px,source:`api(\${j.source||"hosted"})`};
+      return {price:px,source:`api(${j.source||"hosted"})`};
     }
     async function fetchYahoo(tk){
-      const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=\${encodeURIComponent(tk)}`,{mode:"cors"});
+      const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tk)}`,{mode:"cors"});
       if(!r.ok) throw new Error("yahoo bad");
       const j=await r.json(); const q=j?.quoteResponse?.result?.[0];
       const px=Number(q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? q?.regularMarketPreviousClose);
@@ -88,10 +88,10 @@
       return {price:px,source:"yahoo"};
     }
     async function fetchStooq(tk){
-      let s=tk.toLowerCase(); if(s.endsWith(".t")) s=s.replace(/\\.t$/,".jp");
-      const r=await fetch(`https://stooq.com/q/l/?s=\${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`,{mode:"cors"});
+      let s=tk.toLowerCase(); if(s.endsWith(".t")) s=s.replace(/\.t$/,".jp");
+      const r=await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(s)}&f=sd2t2ohlcv&h&e=csv`,{mode:"cors"});
       if(!r.ok) throw new Error("stooq bad");
-      const t=await r.text(); const lines=t.trim().split(/\\r?\\n/);
+      const t=await r.text(); const lines=t.trim().split(/\r?\n/);
       if(lines.length<2) throw new Error("stooq no row");
       const head=lines[0].split(","), row=lines[1].split(",");
       const idx=head.findIndex(h=>h.toLowerCase()==="close");
@@ -129,12 +129,12 @@
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
 
-      const appendLog=(s)=>setLog(p=>`\${p?p+"\\n":""}\${s}`);
+      const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
 
       async function refreshPrice(){
         const tk=(ticker||"").trim(); if(!tk){ appendLog("ticker が空です"); return; }
         const {price:px,source}=await fetchQuoteRobust(tk);
-        if(px!=null){ setPrice(px); appendLog(`OK \${px} (\${source})`); }
+        if(px!=null){ setPrice(px); appendLog(`OK ${px} (${source})`); }
         else{ appendLog("価格の自動取得に失敗しました"); }
       }
 
@@ -148,9 +148,9 @@
 
         const rows=asArr(json).map((r,idx)=>{
           const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
-          const getOp=y=> toNum(g(`Op_\${y}`,`OP_\${y}`));
-          const getFcf=y=> toNum(g(`FCF_\${y}`));
-          const getRoe=y=> parsePercentCell(g(`ROE_\${y}`));
+          const getOp=y=> toNum(g(`Op_${y}`,`OP_${y}`));
+          const getFcf=y=> toNum(g(`FCF_${y}`));
+          const getRoe=y=> parsePercentCell(g(`ROE_${y}`));
           const shareOku= toNum(g("share","Shares_Oku","share_oku"));      // D列 'share'（億株）
           const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
           const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
@@ -170,10 +170,10 @@
         }).filter(r=>(r.name||"").trim()!=="");
 
         setDataset(rows);
-        appendLog(`Excel loaded: \${wsName} / \${rows.length} rows`);
+        appendLog(`Excel loaded: ${wsName} / ${rows.length} rows`);
         if(rows.length){
           const a=rows[0];
-          appendLog(`→ 初期反映: \${a.name} (\${a.ticker}) / Op_2026=\${a.opNowEst}, Op_2027=\${a.opNextEst}, share=\${a.sharesOku}億株`);
+          appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / Op_2026=${a.opNowEst}, Op_2027=${a.opNextEst}, share=${a.sharesOku}億株`);
           fillFromRow(a, /*fetch*/true);
         }
       }
@@ -314,9 +314,9 @@
       else{ invLabel="すばらしい企業"; invCls="great"; }
 
       return h(React.Fragment,null,
-        h("h1",null,"株式評価ミニ（最小構成 → フェーズ3・安定版｜UIスワップ版）"),
+        h("h1",null,"株式評価ミニ（最小構成 → フェーズ3・安定版）"),
         h("div",{className:"twocol"},
-          /* ---- 左列（検索/基本情報/実績入力 → スクリーナー） ---- */
+          /* 左 */
           h("div",null,
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"searchrow"},
@@ -356,7 +356,46 @@
               h("div",{className:"grid5"}, roe.map((v,i)=>h("input",{key:i,value:Number.isFinite(roe[i])?Number(roe[i]).toFixed(2):"",onChange:e=>setRoe(roe.map((x,j)=> j===i? parsePercentCell(e.target.value):x)),inputMode:"decimal"})))
             ),
 
-            /* ←← スワップ後：ここにスクリーナーを配置 */
+            /* 予想OP */
+            h("div",{className:"card",style:{marginBottom:16}},
+              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
+              h("div",{className:"row3"},
+                h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value: op[4]||0, disabled:true})),
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+              )
+            ),
+
+            h("div",{className:"row",style:{marginBottom:16}},
+              h("div",{className:"card"},
+                h("div",{className:"label"},"投資スコア（魅力度の合計）"),
+                h("div",{className:"kpi"},
+                  h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
+                ),
+                /* 合計と評価は改行し、評価はスクリーナーと同色 */
+                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
+                h("div",{style:{marginTop:8}}, h("span",{className:"pill "+(calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great")}, (calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業")))
+              ),
+
+              h("div",{className:"card"},
+                h("div",{className:"label"},"割安度（目標株価と比較）"),
+                h("div",{className:"kpi"},
+                  h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
+                ),
+                /* 目標株価 vs 現在株価 の評価（濃緑/黄/赤） */
+                h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
+              )
+            ),
+
+            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
+          ),
+
+          /* 右：一覧（常に全件表示、投資スコア降順） */
+          h("div",null,
             h("div",{className:"card"},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
                 h("div",{style:{fontWeight:700}},"スクリーナー（投資スコア順・全件表示）"),
@@ -370,45 +409,6 @@
                   h("div",null,(r._s.investScore).toFixed(2)),
                   h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
                 ))
-              )
-            ),
-
-            h("div",{className:"card",style:{marginTop:16}}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
-          ),
-
-          /* ---- 右列（スワップ後：企業業績の見立て（OP予想）＋ 投資スコア/割安度） ---- */
-          h("div",null,
-            /* 予想OP（右列へ移動） */
-            h("div",{className:"card",style:{marginBottom:16}},
-              h("div",{style:{fontWeight:700,marginBottom:8}},"企業業績の見立て（OP：前期/今期/来期 予想）"),
-              h("div",{className:"row3"},
-                h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value: op[4]||0, disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
-              )
-            ),
-
-            /* 投資スコア + 割安度（右列へ移動） */
-            h("div",{className:"row",style:{marginBottom:16}},
-              h("div",{className:"card"},
-                h("div",{className:"label"},"投資スコア（魅力度の合計）"),
-                h("div",{className:"kpi"},
-                  h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
-                ),
-                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
-                h("div",{style:{marginTop:8}}, h("span",{className:"pill "+(calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great")}, (calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業")))
-              ),
-
-              h("div",{className:"card"},
-                h("div",{className:"label"},"割安度（目標株価と比較）"),
-                h("div",{className:"kpi"},
-                  h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
-                ),
-                h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
               )
             )
           )
