@@ -250,7 +250,7 @@
         // 割安度ラベル（しきい値は指定通り）
         const ratio=price>0? target/price:0;
         const valVerdict = ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
-        const valLabel   = ratio>2 ? "割安"     : ratio>1 ? "様子見" : "売るべき";
+        const valLabel   = ratio>2 ? "買い"     : ratio>1 ? "中立" : "売り";
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst]);
@@ -421,6 +421,7 @@
   </script>
 </body>
 </html>
+
 
 
 
