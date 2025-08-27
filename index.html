@@ -222,7 +222,7 @@
         const roePct=asArr(roe).map(parsePercentCell);
         const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
         const roeSlope=linreg(roePct).slope;
-        const barrierScore=(lastRoe/3)+(roeSlope/10);
+        const barrierScore=(lastRoe/4)+(roeSlope/10);
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         // r / gN
@@ -287,7 +287,7 @@
         const roePct=asArr(row.roe).map(parsePercentCell);
         const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
         const roeSlope=linreg(roePct).slope;
-        const barrierScore=(lastRoe/3)+(roeSlope/10);
+        const barrierScore=(lastRoe/4)+(roeSlope/10);
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         let label="",cls="";
@@ -421,6 +421,7 @@
   </script>
 </body>
 </html>
+
 
 
 
