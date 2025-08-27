@@ -281,7 +281,7 @@
           const mm2=(inv-cohort.min2)/Math.max(1e-9,cohort.max2-cohort.min2);
           growthScore=clamp(mm1*100,0,100);
           breScore   =clamp(mm2*100,0,100);
-          opTrendScore=((growthScore+breScore)/2)*0.15;
+          opTrendScore=((growthScore+breScore)/2)*0.05;
         }
         const fundGenScore=asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const roePct=asArr(row.roe).map(parsePercentCell);
@@ -421,5 +421,6 @@
   </script>
 </body>
 </html>
+
 
 
