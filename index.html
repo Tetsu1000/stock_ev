@@ -385,9 +385,30 @@
                                                         h("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
                                                         h("div",{className:"grid5-head"}, years.map(y=>h("div",{key:y},y)) ),
                                                         h("div",{className:"grid5"}, fcf.map((v,i)=>h("input",{key:i,value:v,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
-                                                        <div class="label" style="margin-top:12px">過去5年 ROE（%）</div>
-                                                        <div class="grid5-head">${years.map(y=>`<div>${y}</div>`).join("")}</div>
-                                                        <div class="grid5" id="roe-inputs"></div>
+							h("div", { className: "label", style: { marginTop: 12 } }, "過去5年 ROE（%）"),
+							h("div", { className: "grid5-head" },
+								years.map(y =>
+									h("div", { key: y }, y)
+								)
+							),
+							h("div", { className: "grid5" },
+								roe.map((v, i) =>
+									h("input", {
+										key: i,
+										// 表示は常に％表記（内部は％ポイント保持）
+										value: Number.isFinite(roe[i])
+											? `${Number(roe[i]).toFixed(2)}%`
+											: "",
+										// 入力は 0.12 でも "12.0%" でもOK → ％ポイントに正規化して state へ保存
+										onChange: e => {
+											const next = parseRoeCell(e.target.value); // 0.12 → 12 / "12%" → 12
+											setRoe(roe.map((x, j) => (j === i ? next : x)));
+										},
+										inputMode: "decimal"
+									})
+								)
+							),
+
                                                 </div>,
 
                                                 /* 予想OP */
@@ -450,61 +471,8 @@
                         );
                 }
 
-                // --- ROE入力フィールドの描画（%表示）を React 外で補完（DOM 挿入） ---
-                // ※ 上の JSX 風記述との整合のため、マウント後にここを差し込む実装です。
-                //   React のままでも良いですが、全体置換を簡単にするためこの形にしています。
-                const observer = new MutationObserver(()=>{
-                        const app = document.getElementById("app");
-                        if(!app) return;
-                        const target = app.querySelector("#roe-inputs");
-                        if(!target) return;
-                        observer.disconnect();
-                        // React 再描画で常に更新されるよう、直に React で描画し直す
-                        const root = ReactDOM.createRoot(target);
-                        function RoeInputs(){
-                                const [_,force] = React.useState(0);
-                                // App の状態にアクセス
-                                const inst = document.getElementById("app")._inst;
-                                const roe = inst?.state?.roe ?? [];
-                                const setRoe = inst?.setRoe;
-                                if(!setRoe) return h("div",null);
-                                return h(React.Fragment,null,
-                                        roe.map((v,i)=>h("input",{
-                                                key:i,
-                                                value: fmtPercent(roe[i]),                              // 常に "xx.xx%"
-                                                onChange: e => {
-                                                        const next = parseRoeCell(e.target.value);      // 0.12 → 12
-                                                        setRoe(roe.map((x,j)=> j===i ? next : x));      // state は％pt
-                                                        force(x=>x+1);
-                                                },
-                                                inputMode:"decimal"
-                                        }))
-                                );
-                        }
-                        // App の state にアクセスできるよう簡易的に参照を保存
-                        const _set = ReactDOM.createRoot;
-                        ReactDOM.createRoot = function(el){
-                                const root = _set(el);
-                                const origRender = root.render.bind(root);
-                                root.render = (v)=>{
-                                        const AppWrap = ()=> {
-                                                const res = v.type();
-                                                // 参照を保存（雑ですが置換用の最小実装）
-                                                document.getElementById("app")._inst = {
-                                                        state: { roe: res.props.children.props.children[0]?.props?.children?.props?.children?.props?.children }, // 使わないが占位
-                                                };
-                                                return res;
-                                        };
-                                        return origRender(v);
-                                };
-                                return root;
-                        };
-                        root.render(React.createElement(RoeInputs));
-                });
-                observer.observe(document.body,{childList:true,subtree:true});
-
-                ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
-        })();
+   
         </script>
 </body>
 </html>
+
