@@ -260,7 +260,7 @@
           });
         }, [dataset, roeMu, roeSdCohort]);
 
-        const investScore=opTrendScore+fundGenScore+barrierScore;
+        const investScore=opTrendScore+fundGenScore+rowsWithBarrier.map(row => row.barrierScore);
 
         // r / gN
         let r=0.07, gN=0.025;
@@ -458,6 +458,7 @@
   </script>
 </body>
 </html>
+
 
 
 
