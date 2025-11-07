@@ -219,20 +219,35 @@
         }
         const opTrendScore=((growthScore+breScore)/2)*0.05;
         const fundGenScore=asArr(fcf).filter(x=>(Number(x)||0)>0).length;
-        const roeCohort = React.useMemo(()=>{
-          if(!dataset.length) return null;
-          const slopes = dataset.map(r => linreg(asArr(r.roe).map(parsePercentCell)).slope);
-          const mu = mean(slopes);
-          const sd = Math.max(1e-9, stdev(slopes));
+        const roeCohort = React.useMemo(() => {
+          if (!dataset.length) return null;
+          const slopes = dataset
+            .map(r => linreg(asArr(r.roe).map(parsePercentCell)).slope)
+            .filter(x => Number.isFinite(x));
+          if (!slopes.length) return null;
+          const mu  = mean(slopes);
+          const sd  = Math.max(1e-9, stdev(slopes));
           const min = Math.min(...slopes);
           const max = Math.max(...slopes);
           return { mu, sd, min, max };
         }, [dataset]);
-        const roeSlope=linreg(r.roe)
-        const roeSlopeZ = (roeSlope - mu) / Math.max(1e-9, sd);
-        const roeSlopeSig = 1 / (1 + Math.exp(-roeSlopeZ)); // シグモイド正規化
-        const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
-        const barrierScore=(lastRoe/4)+roeSlopeSig
+
+        const { mu, sd } = roeCohort ?? { mu: 0, sd: 1e-9 };
+
+        // ここで各行を計算
+        const rowsWithScores = dataset.map(r => {
+        const roeArr   = asArr(r.roe).map(parsePercentCell).filter(Number.isFinite);
+        const roeSlope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
+
+        const roeSlopeZ   = (roeSlope - mu) / Math.max(1e-9, sd);
+        const roeSlopeSig = 1 / (1 + Math.exp(-roeSlopeZ));
+
+        const lastRoe = Number.isFinite(roeArr[4]) ? roeArr[4] : (roeArr.at(-1) ?? 0);
+        const barrierScore = (lastRoe / 4) + roeSlopeSig;
+
+        return { ...r, barrierScore, roeSlopeSig, roeSlope, lastRoe };
+      });
+
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         // r / gN
@@ -431,6 +446,7 @@
   </script>
 </body>
 </html>
+
 
 
 
