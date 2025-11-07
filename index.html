@@ -3,7 +3,7 @@
 <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>株式評価ミニ（ROE 比率入力→％表示・％pt計算）</title>
+        <title>株式評価ミニ（ROE: 比率入力→％表示／％pt計算）</title>
         <style>
                 :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
                 html,body{height:100%}
@@ -59,22 +59,22 @@
                 const prettyPct=(x)=>Number.isFinite(x)?(x.toFixed(2)+"%"):"-";
                 const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
 
-                /* ★ROE用パーサ：入力は原則「比率（0.12＝12%）」。
-                   - "12.3%" → 12.3（％ポイント）
-                   - 0.12     → 12   （％ポイント）
-                   - 12.3     → 12.3（％ポイント：すでに％ptとみなす）
-                   ×100は「比率（|x|<=1.5）」の時だけ行う。 */
+                /* ------- 重要：ROEは“比率入力(0.12)”を“％ポイント(12.0)”へ変換 ------- */
+                // "12.3%" → 12.3（％pt） / 0.12 → 12（％pt） / 12.3 → 12.3（％pt）
                 const parseRoeCell=(v)=>{
                         if(v==null || v==="") return 0;
                         if(typeof v==="string"){
                                 const s=v.trim();
-                                if(s.endsWith("%")) return toNum(s.slice(0,-1)); // "12.3%" → 12.3
+                                if(s.endsWith("%")) return toNum(s.slice(0,-1)); // "12.3%"→12.3
                                 const n=toNum(s);
-                                return (Number.isFinite(n) && Math.abs(n)<=1.5) ? n*100 : n; // 0.12 → 12 / 12 → 12
+                                return (Number.isFinite(n) && Math.abs(n)<=1.5) ? n*100 : n; // 0.12→12 / 12→12
                         }
                         const n=toNum(v);
                         return (Number.isFinite(n) && Math.abs(n)<=1.5) ? n*100 : n;
                 };
+
+                // 表示用：％ポイント → "xx.xx%"
+                const fmtPercent=(pt)=> Number.isFinite(pt) ? `${Number(pt).toFixed(2)}%` : "";
 
                 const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length:0;
                 const stdev=a=>{ const m=mean(a); const v=a.length? a.reduce((s,v)=>s+(v-m)**2,0)/a.length:0; return Math.sqrt(v); };
@@ -119,7 +119,8 @@
                         const [sharesOku,setSharesOku]=React.useState(0);
                         const [op,setOp]=React.useState([0,0,0,0,0]);
                         const [fcf,setFcf]=React.useState([0,0,0,0,0]);
-                        const [roe,setRoe]=React.useState([0,0,0,0,0]);       // ％ポイント数値を保持（入力は比率でもOK）
+                        // ここは常に ％ポイント（12.0 など）で保持する
+                        const [roe,setRoe]=React.useState([0,0,0,0,0]);
                         const [opNowEst,setOpNowEst]=React.useState(0);
                         const [opNextEst,setOpNextEst]=React.useState(0);
                         const [dataset,setDataset]=React.useState([]);
@@ -145,10 +146,10 @@
 
                                 const rows=asArr(json).map((r,idx)=>{
                                         const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
-                                        const getOp=y=> toNum(g(`Op_${y}`,`OP_${y}`));
-                                        const getFcf=y=> toNum(g(`FCF_${y}`));
-                                        // Excel 由来の "比率（0.12）" も "12.3%" も parseRoeCell で ％ポイントに統一
-                                        const getRoe=y=> parseRoeCell(g(`ROE_${y}`));
+                                        const getOp = y=> toNum(g(`Op_${y}`,`OP_${y}`));
+                                        const getFcf= y=> toNum(g(`FCF_${y}`));
+                                        // Excel は比率(0.12) or 文字列"12.3%" → どちらも parseRoeCell で ％ポイントへ
+                                        const getRoe= y=> parseRoeCell(g(`ROE_${y}`));
                                         const shareOku= toNum(g("share","Shares_Oku","share_oku"));
                                         const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
                                         const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
@@ -158,7 +159,7 @@
                                                 ticker: String(g("ticker","Ticker")||""),
                                                 op: years.map(getOp),
                                                 fcf: years.map(getFcf),
-                                                roe: years.map(getRoe),   // ← ％ポイントに統一
+                                                roe: years.map(getRoe),   // ★％ポイントに統一
                                                 sharesOku: Number(shareOku)||0,
                                                 price: Number(toNum(g("price","Price")))||null,
                                                 opNowEst: opNow||0,
@@ -175,9 +176,11 @@
                                 }
                         }
 
+                        // ★fillでも必ず％ポイントに正規化して state へ
                         function fillFromRow(row, doFetch=false){
                                 setName(row.name||""); setTicker(row.ticker||"");
-                                setOp(asArr(row.op)); setFcf(asArr(row.fcf)); setRoe(asArr(row.roe));
+                                setOp(asArr(row.op)); setFcf(asArr(row.fcf));
+                                setRoe(asArr(row.roe).map(parseRoeCell));   // ←ここで ％pt 化を保証
                                 setSharesOku(Number(row.sharesOku)||0);
                                 setOpNowEst(Number(row.opNowEst)||0); setOpNextEst(Number(row.opNextEst)||0);
                                 if(Number(row.price)) setPrice(Number(row.price));
@@ -231,9 +234,9 @@
                                 const fundGenScore=asArr(fcf).filter(x=>(Number(x)||0)>0).length;
 
                                 // 参入障壁（ROE）：lastRoe(％pt)/3 + tanh(z)
-                                const roeArr = asArr(roe).map(parseRoeCell).filter(Number.isFinite); // ％ポイント配列
-                                const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;   // 0.0095 → 0.95
-                                const lastRoeScore = lastRoe / 3;                                      // 0.95 / 3 ≈ 0.32
+                                const roeArr = asArr(roe).map(parseRoeCell).filter(Number.isFinite); // ← ％ポイント配列
+                                const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;   // 0.12 → 12 / 0.0095 → 0.95
+                                const lastRoeScore = lastRoe / 3;                                      // 12→4 / 0.95→0.32
                                 const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;           // ％pt/年
                                 const z = (slope - roeMu) / Math.max(1e-9, roeSd);
                                 const roeGrowthScore = Math.tanh(z);                                    // [-1,+1]
@@ -303,7 +306,7 @@
                                 // ROE参入障壁（％ポイントベース）
                                 const roeArr = asArr(row.roe).map(parseRoeCell).filter(Number.isFinite);
                                 const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;
-                                const lastRoeScore = lastRoe / 3;                        // 12 → 4, 0.0095 → 0.95 → 0.32
+                                const lastRoeScore = lastRoe / 3;                        // 12 → 4, 0.95 → 0.32
                                 const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
                                 const z = (slope - (roeSlopeCohort?.mu ?? 0)) / Math.max(1e-9, (roeSlopeCohort?.sd ?? 1e-9));
                                 const roeGrowthScore = Math.tanh(z);
@@ -345,7 +348,7 @@
                         else{ invLabel="すばらしい企業"; invCls="great"; }
 
                         return h(React.Fragment,null,
-                                h("h1",null,"株式評価ミニ（ROE 比率入力→％表示・％pt計算）"),
+                                h("h1",null,"株式評価ミニ（ROE: 比率入力→％表示／％pt計算）"),
                                 h("div",{className:"twocol"},
                                         /* 左 */
                                         h("div",null,
@@ -382,22 +385,10 @@
                                                         h("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
                                                         h("div",{className:"grid5-head"}, years.map(y=>h("div",{key:y},y)) ),
                                                         h("div",{className:"grid5"}, fcf.map((v,i)=>h("input",{key:i,value:v,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
-                                                        h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
-                                                        h("div",{className:"grid5-head"}, years.map(y=>h("div",{key:y},y)) ),
-                                                        h("div",{className:"grid5"},
-                                                                roe.map((v,i)=>h("input",{
-                                                                        key:i,
-                                                                        // 表示は「xx.xx%」（内部は％ポイント）
-                                                                        value: Number.isFinite(roe[i]) ? `${Number(roe[i]).toFixed(2)}%` : "",
-                                                                        // 入力は 0.12 / "12.0%" どちらでもOK → ％ポイントへ
-                                                                        onChange: e => {
-                                                                                const next = parseRoeCell(e.target.value);
-                                                                                setRoe(roe.map((x,j)=> j===i ? next : x));
-                                                                        },
-                                                                        inputMode:"decimal"
-                                                                }))
-                                                        )
-                                                ),
+                                                        <div class="label" style="margin-top:12px">過去5年 ROE（%）</div>
+                                                        <div class="grid5-head">${years.map(y=>`<div>${y}</div>`).join("")}</div>
+                                                        <div class="grid5" id="roe-inputs"></div>
+                                                </div>,
 
                                                 /* 予想OP */
                                                 h("div",{className:"card",style:{marginBottom:16}},
@@ -458,6 +449,59 @@
                                 )
                         );
                 }
+
+                // --- ROE入力フィールドの描画（%表示）を React 外で補完（DOM 挿入） ---
+                // ※ 上の JSX 風記述との整合のため、マウント後にここを差し込む実装です。
+                //   React のままでも良いですが、全体置換を簡単にするためこの形にしています。
+                const observer = new MutationObserver(()=>{
+                        const app = document.getElementById("app");
+                        if(!app) return;
+                        const target = app.querySelector("#roe-inputs");
+                        if(!target) return;
+                        observer.disconnect();
+                        // React 再描画で常に更新されるよう、直に React で描画し直す
+                        const root = ReactDOM.createRoot(target);
+                        function RoeInputs(){
+                                const [_,force] = React.useState(0);
+                                // App の状態にアクセス
+                                const inst = document.getElementById("app")._inst;
+                                const roe = inst?.state?.roe ?? [];
+                                const setRoe = inst?.setRoe;
+                                if(!setRoe) return h("div",null);
+                                return h(React.Fragment,null,
+                                        roe.map((v,i)=>h("input",{
+                                                key:i,
+                                                value: fmtPercent(roe[i]),                              // 常に "xx.xx%"
+                                                onChange: e => {
+                                                        const next = parseRoeCell(e.target.value);      // 0.12 → 12
+                                                        setRoe(roe.map((x,j)=> j===i ? next : x));      // state は％pt
+                                                        force(x=>x+1);
+                                                },
+                                                inputMode:"decimal"
+                                        }))
+                                );
+                        }
+                        // App の state にアクセスできるよう簡易的に参照を保存
+                        const _set = ReactDOM.createRoot;
+                        ReactDOM.createRoot = function(el){
+                                const root = _set(el);
+                                const origRender = root.render.bind(root);
+                                root.render = (v)=>{
+                                        const AppWrap = ()=> {
+                                                const res = v.type();
+                                                // 参照を保存（雑ですが置換用の最小実装）
+                                                document.getElementById("app")._inst = {
+                                                        state: { roe: res.props.children.props.children[0]?.props?.children?.props?.children?.props?.children }, // 使わないが占位
+                                                };
+                                                return res;
+                                        };
+                                        return origRender(v);
+                                };
+                                return root;
+                        };
+                        root.render(React.createElement(RoeInputs));
+                });
+                observer.observe(document.body,{childList:true,subtree:true});
 
                 ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
         })();
