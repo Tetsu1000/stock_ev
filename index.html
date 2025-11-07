@@ -219,38 +219,51 @@
         }
         const opTrendScore=((growthScore+breScore)/2)*0.05;
         const fundGenScore=asArr(fcf).filter(x=>(Number(x)||0)>0).length;
-        // ROE傾きの分布（平均0・分母用σ）を全社で計算
-        const roeSlopeCohort = React.useMemo(() => {
-        if (!dataset.length) return null;
+       // 1) まず、全社の ROE 傾きの平均・標準偏差を求める（トップレベル）
+const roeSlopeCohort = React.useMemo(() => {
+  if (!dataset.length) return null;
 
-        const slopes = dataset
-        .map(r => asArr(r.roe).map(parsePercentCell).filter(Number.isFinite))
-        .map(arr => (arr.length >= 2 ? linreg(arr).slope : null))
-        .filter(x => Number.isFinite(x));
+  const slopes = dataset
+    .map(r => asArr(r.roe).map(parsePercentCell).filter(Number.isFinite))
+    .map(arr => (arr.length >= 2 ? linreg(arr).slope : null))
+    .filter(x => Number.isFinite(x));
 
-        if (!slopes.length) return null;
+  if (!slopes.length) return null;
 
-        const mu = mean(slopes);
-        const sd = Math.max(1e-9, stdev(slopes));
-        return { mu, sd };
-      }, [dataset]);
+  const mu = mean(slopes);
+  const sd = Math.max(1e-9, stdev(slopes));
+  return { mu, sd };
+}, [dataset]);
 
-        // null安全に取り出し
-        const { mu: roeMu, sd: roeSdCohort } = roeSlopeCohort ?? { mu: 0, sd: 1e-9 };
-        // r ごとの ROE系列
-        const roeArr = asArr(r.roe).map(parsePercentCell).filter(Number.isFinite);
+// null セーフに取り出し（トップレベル）
+const { mu: roeMu, sd: roeSdCohort } = roeSlopeCohort ?? { mu: 0, sd: 1e-9 };
 
-         // 直近ROEスコア：12% → 4 になるように（= ROE[%] / 3）
-        const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;
-        const lastRoeScore = lastRoe / 3;
 
-        // ROE成長スコア：傾きを z 化して tanh で [-1, +1]
-        const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
-        const z = (slope - roeMu) / Math.max(1e-9, roeSdCohort);
-        const roeGrowthScore = Math.tanh(z);   // 平均≈0, 範囲[-1, +1]
+// 2) 各行 r ごとの参入障壁スコアを作った配列を返す（←ここで初めて r を使う）
+const rowsWithBarrier = React.useMemo(() => {
+  return dataset.map(r => {
+    const roeArr = asArr(r.roe).map(parsePercentCell).filter(Number.isFinite);
 
-        // 参入障壁スコア = 直近ROEスコア + ROE成長スコア
-        const barrierScore = lastRoeScore + roeGrowthScore;
+    // 直近ROEスコア：12% → 4 になるように
+    const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;
+    const lastRoeScore = lastRoe / 3; // 12%→4
+
+    // ROE成長スコア：傾きを z 化して tanh で [-1, +1]
+    const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
+    const z = (slope - roeMu) / Math.max(1e-9, roeSdCohort);
+    const roeGrowthScore = Math.tanh(z);
+
+    // 参入障壁スコア
+    const barrierScore = lastRoeScore + roeGrowthScore;
+
+    return { ...r, barrierScore, lastRoe, roeGrowthScore, slope };
+  });
+}, [dataset, roeMu, roeSdCohort]);
+
+/* 以降、スコアを使う側は
+   rowsWithBarrier.map(row => row.barrierScore)
+   のように参照してください。トップレベルで barrierScore 単体を参照しないこと。 */
+
 
 
         const investScore=opTrendScore+fundGenScore+barrierScore;
@@ -451,6 +464,7 @@
   </script>
 </body>
 </html>
+
 
 
 
