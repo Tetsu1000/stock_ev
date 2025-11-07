@@ -219,34 +219,39 @@
         }
         const opTrendScore=((growthScore+breScore)/2)*0.05;
         const fundGenScore=asArr(fcf).filter(x=>(Number(x)||0)>0).length;
-        const roeCohort = React.useMemo(() => {
-          if (!dataset.length) return null;
-          const slopes = dataset
-            .map(r => linreg(asArr(r.roe).map(parsePercentCell)).slope)
-            .filter(x => Number.isFinite(x));
-          if (!slopes.length) return null;
-          const mu  = mean(slopes);
-          const sd  = Math.max(1e-9, stdev(slopes));
-          const min = Math.min(...slopes);
-          const max = Math.max(...slopes);
-          return { mu, sd, min, max };
-        }, [dataset]);
+        // ROE傾きの分布（平均0・分母用σ）を全社で計算
+        const roeSlopeCohort = React.useMemo(() => {
+        if (!dataset.length) return null;
 
-        const { mu, sd } = roeCohort ?? { mu: 0, sd: 1e-9 };
+        const slopes = dataset
+        .map(r => asArr(r.roe).map(parsePercentCell).filter(Number.isFinite))
+        .map(arr => (arr.length >= 2 ? linreg(arr).slope : null))
+        .filter(x => Number.isFinite(x));
 
-        // ここで各行を計算
-        const rowsWithScores = dataset.map(r => {
-        const roeArr   = asArr(r.roe).map(parsePercentCell).filter(Number.isFinite);
-        const roeSlope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
+        if (!slopes.length) return null;
 
-        const roeSlopeZ   = (roeSlope - mu) / Math.max(1e-9, sd);
-        const roeSlopeSig = 1 / (1 + Math.exp(-roeSlopeZ));
+        const mu = mean(slopes);
+        const sd = Math.max(1e-9, stdev(slopes));
+        return { mu, sd };
+      }, [dataset]);
 
-        const lastRoe = Number.isFinite(roeArr[4]) ? roeArr[4] : (roeArr.at(-1) ?? 0);
-        const barrierScore = (lastRoe / 4) + roeSlopeSig;
+        // null安全に取り出し
+        const { mu: roeMu, sd: roeSdCohort } = roeSlopeCohort ?? { mu: 0, sd: 1e-9 };
+        // r ごとの ROE系列
+        const roeArr = asArr(r.roe).map(parsePercentCell).filter(Number.isFinite);
 
-        return { ...r, barrierScore, roeSlopeSig, roeSlope, lastRoe };
-      });
+         // 直近ROEスコア：12% → 4 になるように（= ROE[%] / 3）
+        const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0;
+        const lastRoeScore = lastRoe / 3;
+
+        // ROE成長スコア：傾きを z 化して tanh で [-1, +1]
+        const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
+        const z = (slope - roeMu) / Math.max(1e-9, roeSdCohort);
+        const roeGrowthScore = Math.tanh(z);   // 平均≈0, 範囲[-1, +1]
+
+        // 参入障壁スコア = 直近ROEスコア + ROE成長スコア
+        const barrierScore = lastRoeScore + roeGrowthScore;
+
 
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
@@ -446,6 +451,7 @@
   </script>
 </body>
 </html>
+
 
 
 
