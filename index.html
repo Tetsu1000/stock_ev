@@ -228,7 +228,7 @@
             const max = Math.max(...slopes);
             return { mu, sd, min, max };
         }, [dataset]);
-        const { mu, sd, min, max } = roeCohort;
+        const { mu, sd, min, max } = roeCohort ?? { mu: 0, sd: 1e-9, min: 0, max: 0 };
         const roeSlopeZ = (roeSlope - mu) / Math.max(1e-9, sd);
         const roeSlopeSig = 1 / (1 + Math.exp(-roeSlopeZ)); // シグモイド正規化
         const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
@@ -431,6 +431,7 @@
   </script>
 </body>
 </html>
+
 
 
 
