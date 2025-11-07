@@ -227,11 +227,12 @@
             const min = Math.min(...slopes);
             const max = Math.max(...slopes);
             return { mu, sd, min, max };
-          }, [dataset]);
+        }, [dataset]);
         const { mu, sd, min, max } = roeCohort;
         const roeSlopeZ = (roeSlope - mu) / Math.max(1e-9, sd);
         const roeSlopeSig = 1 / (1 + Math.exp(-roeSlopeZ)); // シグモイド正規化
-        const barrierScore=(lastroe/4)+roeSlopeSig
+        const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
+        const barrierScore=(lastRoe/4)+roeSlopeSig
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         // r / gN
@@ -430,6 +431,7 @@
   </script>
 </body>
 </html>
+
 
 
 
