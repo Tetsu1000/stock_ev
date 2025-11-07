@@ -222,8 +222,8 @@
         const roePct=asArr(roe).map(parsePercentCell);
         const lastRoe=Number.isFinite(roePct[4])?roePct[4]:0;
         const roeSlope=linreg(roePct).slope;
-        const roeDivs=linreg(roePct).divs;
-        const barrierScore=(lastRoe/4)+(roeSlope/10*roeDives);
+        const roeSd = Math.max(1e-9, stdev(roePct));
+        const barrierScore=(lastRoe/4)+(roeSlope/10*roeSd);
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         // r / gN
@@ -422,6 +422,7 @@
   </script>
 </body>
 </html>
+
 
 
 
