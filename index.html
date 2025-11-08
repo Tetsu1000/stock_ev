@@ -414,8 +414,8 @@
               h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
               h("div",{className:"row3"},
                 h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value: op[4]||0, disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
               )
             ),
 
@@ -424,7 +424,7 @@
                 h("div",{className:"label"},"投資スコア（魅力度の合計）"),
                 h("div",{className:"kpi"},
                   h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"資金創出（FCF>0年数）"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"資金創出"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
                 ),
                 h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
@@ -435,15 +435,12 @@
                 h("div",{className:"label"},"割安度（目標株価と比較）"),
                 h("div",{className:"kpi"},
                   h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
-                  h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN（標準化）"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
                 ),
                 h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
               )
             ),
-
-            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
-          ),
 
           /* 右：一覧（投資スコア降順） */
           h("div",null,
@@ -472,5 +469,6 @@
   </script>
 </body>
 </html>
+
 
 
