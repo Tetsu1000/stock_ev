@@ -84,6 +84,12 @@
       return {slope,intercept,se};
     };
 
+    /* === 補助：ロジスティック平滑関数（mid + half * (2/(1+e^{-kz}) - 1)） === */
+    function smoothLogistic(z, mid, half, k){
+      return mid + half * (2 / (1 + Math.exp(-k * z)) - 1);
+    }
+
+
     /* === 価格取得（フォールバック） === */
     const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
     const jitter=(b=140)=> b + Math.floor(Math.random()*180);
@@ -261,11 +267,14 @@
 
         const investScore = opTrendScore + fundGenScore + barrierScore;
 
-        // r / gN（選択銘柄）
+        // r / gN（選択銘柄、ロジスティック平滑）
         let r=0.07, gN=0.025;
         if(cohort){
-          const seStd=(seDiv-cohort.muSe)/cohort.sdSe; r=(seStd+7)/100;
-          const slopeStd=(slopeDiv-cohort.muSlope)/cohort.sdSlope; gN=(slopeStd+2.5)/100;
+          const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
+          const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
+          const kr=0.95, kg=0.95; // 飽和スピード調整
+          r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
+          gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
 
         // 目標株価（簡略DCF）
@@ -331,14 +340,17 @@
         const fundGenScore=asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
-        // ★ ここで各行の r / gN を個別計算
+        // ★ ここで各行の r / gN を個別計算（ロジスティック平滑）
         let r=0.07, gN=0.025;
         if(cohort){
-          const seStd=(seDiv-cohort.muSe)/cohort.sdSe; r=(seStd+7)/100;
-          const slopeStd=(slopeDiv-cohort.muSlope)/cohort.sdSlope; gN=(slopeStd+2.5)/100;
+          const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
+          const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
+          const kr=0.95, kg=0.95;
+          r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
+          gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
 
-        let label="",cls="";
+        let label="",cls="";="",cls="";
         if(investScore<8){ label="売るべき企業"; cls="sell"; }
         else if(investScore<10){ label="様子見企業"; cls="neu"; }
         else if(investScore<12){ label="よい企業"; cls="good"; }
