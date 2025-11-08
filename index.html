@@ -255,7 +255,7 @@
         const roeArr = asArr(roe).filter(Number.isFinite);           // ％ポイント
         const lastRoe = Number.isFinite(roeArr.at(-1)) ? roeArr.at(-1) : 0; // 例: 12 → 12%
         // シグモイド：8 / (1 + exp(-k * (ROE-12)/12))、k=25 をデフォルト
-        const lastRoeScore = 6 / (1 + Math.exp(-25 * (lastRoe - 12) / 12));
+        const lastRoeScore = 6 / (1 + Math.exp(-10 * (lastRoe - 12) / 12));
         const slope = roeArr.length >= 2 ? linreg(roeArr).slope : 0;
         const z = (slope - roeMu) / Math.max(1e-9, roeSd);
         const roeGrowthScore = Math.tanh(z);                          // ±1に有界
@@ -324,7 +324,7 @@
         const {mu:roeMu, sd:roeSd} = roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);   // ％ポイントのまま
         const lastRoe = Number.isFinite(roePct[4]) ? roePct[4] : 0;
-        const lastRoeScore = 6/ (1 + Math.exp(-25 * (lastRoe - 12) / 12)); // ←滑らかに0〜8
+        const lastRoeScore = 6/ (1 + Math.exp(-10 * (lastRoe - 12) / 12)); // ←滑らかに0〜8
         const slope = linreg(roePct).slope;
         const z = (slope - roeMu) / Math.max(1e-9, roeSd);
         const roeGrowthScore = Math.tanh(z);                   // ±1
@@ -472,4 +472,5 @@
   </script>
 </body>
 </html>
+
 
