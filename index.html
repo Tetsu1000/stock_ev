@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ</title>
+  <title>株式評価ミニ（ROEスコア滑らか化・統合版｜r/gN個別化・ロバストz）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -89,6 +89,12 @@
       return mid + half * (2 / (1 + Math.exp(-k * z)) - 1);
     }
 
+    /* === ロバスト統計（median/MAD）＋フォールバック === */
+    function median(a){ const b=[...a].sort((x,y)=>x-y); const n=b.length; return n? (n%2? b[(n-1)/2] : 0.5*(b[n/2-1]+b[n/2])):0; }
+    function mad(a){ const m=median(a); const d=a.map(x=>Math.abs(x-m)); return median(d) || 1e-9; }
+    function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/sorted.length : 0.5; }
+    function logit(p){ const e=1e-6; const q=Math.min(1-e, Math.max(e,p)); return Math.log(q/(1-q)); }
+    function zRobust(x, med, madVal, sorted){ if(madVal < 1e-8 && sorted){ return logit(percentileOfSorted(sorted, x)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
     /* === 価格取得（フォールバック） === */
     const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
@@ -212,7 +218,7 @@
 
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
 
-      /* === OPベースのコホート === */
+      /* === OPベースのコホート（ロバスト統計を併用） === */
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
@@ -222,7 +228,12 @@
         const muSe=mean(seDivs), sdSe=Math.max(1e-9,stdev(seDivs));
         const min1=Math.min(...slopeDivs), max1=Math.max(...slopeDivs);
         const min2=Math.min(...invs),      max2=Math.max(...invs);
-        return {muSlope,sdSlope,muSe,sdSe,min1,max1,min2,max2};
+        // 追加：ロバスト指標と順位フォールバック用配列
+        const medSlope = median(slopeDivs), madSlope = mad(slopeDivs);
+        const medSe    = median(seDivs),    madSe    = mad(seDivs);
+        const slopeSorted = slopeDivs.slice().sort((x,y)=>x-y);
+        const seSorted    = seDivs.slice().sort((x,y)=>x-y);
+        return {muSlope,sdSlope,muSe,sdSe,min1,max1,min2,max2, medSlope,madSlope,medSe,madSe, slopeSorted,seSorted};
       },[dataset]);
 
       /* === ROE傾きコホート === */
@@ -267,12 +278,12 @@
 
         const investScore = opTrendScore + fundGenScore + barrierScore;
 
-        // r / gN（選択銘柄、ロジスティック平滑）
+        // r / gN（選択銘柄、ロバストz→ロジスティック）
         let r=0.07, gN=0.025;
         if(cohort){
-          const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
-          const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
-          const kr=3.00, kg=3.00; // 飽和スピード調整
+          const seStd    = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
+          const slopeStd = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
+          const kr=1.2, kg=1.2;
           r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
           gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
@@ -340,12 +351,12 @@
         const fundGenScore=asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
-        // ★ ここで各行の r / gN を個別計算（ロジスティック平滑）
+        // ★ ここで各行の r / gN を個別計算（ロバストz→ロジスティック）
         let r=0.07, gN=0.025;
         if(cohort){
-          const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
-          const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
-          const kr=3.00, kg=3.00;
+          const seStd    = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
+          const slopeStd = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
+          const kr=1.2, kg=1.2;
           r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
           gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
@@ -376,7 +387,7 @@
       else{ invLabel="すばらしい企業"; invCls="great"; }
 
       return h(React.Fragment,null,
-        h("h1",null,"株式評価ミニ（ROEスコア滑らか化・統合版｜r/gN個別化）"),
+        h("h1",null,"株式評価ミニ（ROEスコア滑らか化・統合版｜r/gN個別化・ロバストz）"),
         h("div",{className:"twocol"},
           /* 左 */
           h("div",null,
@@ -391,6 +402,7 @@
                   h("button",{className:"btn",style:{width:"100%"},onClick:refreshPrice},"価格を更新")
                 )
               ),
+              <!-- 以下 UI は元のまま → 省略なしで全体掲載 -->
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"会社名"), h("input",{value:name,onChange:e=>setName(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"ティッカー（例 7203.T）"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)}))
@@ -489,8 +501,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
