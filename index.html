@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（ROEスコア滑らか化・統合版｜r/gN個別化）</title>
+  <title>株式評価ミニ</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -272,7 +272,7 @@
         if(cohort){
           const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
           const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
-          const kr=0.95, kg=0.95; // 飽和スピード調整
+          const kr=0.70, kg=0.70; // 飽和スピード調整
           r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
           gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
@@ -345,7 +345,7 @@
         if(cohort){
           const seStd=(seDiv-cohort.muSe)/Math.max(1e-9,cohort.sdSe);
           const slopeStd=(slopeDiv-cohort.muSlope)/Math.max(1e-9,cohort.sdSlope);
-          const kr=0.95, kg=0.95;
+          const kr=0.70, kg=0.70;
           r  = smoothLogistic(seStd,    7.0, 3.0,  kr) / 100;  // 4〜10%
           gN = smoothLogistic(slopeStd, 2.5, 2.5, kg) / 100;  // 0〜5%
         }
@@ -489,3 +489,4 @@
   </script>
 </body>
 </html>
+
