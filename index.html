@@ -441,6 +441,9 @@
                 h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
               )
             ),
+                h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
+          ),
+
 
           /* 右：一覧（投資スコア降順） */
           h("div",null,
@@ -469,6 +472,7 @@
   </script>
 </body>
 </html>
+
 
 
 
