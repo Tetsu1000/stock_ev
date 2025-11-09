@@ -421,6 +421,16 @@
               )
             ),
 
+            /* コンセンサス予想（↓へ移動） */
+            h("div",{className:"card",style:{marginBottom:16}},
+              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
+              h("div",{className:"row3"},
+                h("div",null, h("div",{className:"label"},"前期OP（億円）"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+              )
+            ),
+            
             /* ヒストリカルデータ（↓へ移動） */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"過去5年 営業利益（億円）"),
@@ -432,16 +442,6 @@
               h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
               h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:Number.isFinite(roe[i])?(Number(roe[i]).toFixed(2)+"%"):"",onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),inputMode:"decimal"})))
-            ),
-
-            /* コンセンサス予想（↓へ移動） */
-            h("div",{className:"card",style:{marginBottom:16}},
-              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
-              h("div",{className:"row3"},
-                h("div",null, h("div",{className:"label"},"前期OP（億円）"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
-              )
             ),
 
             h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
@@ -475,4 +475,5 @@
   </script>
 </body>
 </html>
+
 
