@@ -299,7 +299,7 @@
         if(cohort){
           const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted); // 成長：大きいほど良
           const zStab  = - zRobust(seDiv,   cohort.medSe,    cohort.madSe,    cohort.seSorted);   // 安定：小さいほど良 → 符号反転
-          const k = 1.2; // 勾配（体感で調整。±1で約27/73、±2で約12/88）
+          const k = 0.7; // 勾配（体感で調整。±1で約27/73、±2で約12/88）
           growthScore = toScore0100(zSlope, k);
           breScore    = toScore0100(zStab,  k);
         }
@@ -323,7 +323,7 @@
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
-          const kr=1.0, kg=0.7;
+          const kr=1.2, kg=0.7;
           r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
           gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
         }
@@ -621,3 +621,4 @@
   </script>
 </body>
 </html>
+
