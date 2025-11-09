@@ -299,7 +299,7 @@
         if(cohort){
           const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted); // 成長：大きいほど良
           const zStab  = - zRobust(seDiv,   cohort.medSe,    cohort.madSe,    cohort.seSorted);   // 安定：小さいほど良 → 符号反転
-          const k = 0.5; // 勾配（体感で調整。±1で約27/73、±2で約12/88）
+          const k = 0.25; // 勾配（体感で調整。±1で約27/73、±2で約12/88）
           growthScore = toScore0100(zSlope, k);
           breScore    = toScore0100(zStab,  k);
         }
@@ -310,7 +310,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roeArr=asArr(roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roeArr[roeArr.length-1])? roeArr[roeArr.length-1]:0;
-        const lastRoeScore=6/(1+Math.exp(-10*(lastRoe-12)/12)); // 12%で≈3に寄せる版
+        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で≈3に寄せる版
         const slope=roeArr.length>=2? linreg(roeArr).slope:0;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -323,7 +323,7 @@
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
-          const kr=1.5, kg=0.5;
+          const kr=2.0, kg=0.25;
           r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
           gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
         }
@@ -376,7 +376,7 @@
         if(cohort){
           const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
           const zStab  = - zRobust(seDiv,   cohort.medSe,    cohort.madSe,    cohort.seSorted);
-          const k=0.5;
+          const k=0.25;
           growthScore = toScore0100(zSlope, k);
           breScore    = toScore0100(zStab,  k);
           opTrendScore=((growthScore+breScore)/2)*0.05;
@@ -385,7 +385,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roePct[4])? roePct[4]:0;
-        const lastRoeScore=6/(1+Math.exp(-10*(lastRoe-12)/12));
+        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12));
         const slope=linreg(roePct).slope;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -399,7 +399,7 @@
         if(cohort){
           const seStd = zRobust(seDiv,cohort.medSe,cohort.madSe,cohort.seSorted);
           const slopeStd=zRobust(slopeDiv,cohort.medSlope,cohort.madSlope,cohort.slopeSorted);
-          const kr=1.5, kg=0.5;
+          const kr=2.0, kg=0.25;
           r=smoothLogistic(seStd,7.0,3.0,kr)/100;
           gN=smoothLogistic(slopeStd,2.5,2.5,kg)/100;
         }
@@ -621,5 +621,6 @@
   </script>
 </body>
 </html>
+
 
 
