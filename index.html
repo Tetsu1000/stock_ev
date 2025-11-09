@@ -304,8 +304,8 @@
         const target=(Number(sharesOku)||0)>0? pv/Number(sharesOku):0;
 
         const ratio=price>0? target/price:0;
-        const valVerdict= ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
-        const valLabel  = ratio>2 ? "買い"   : ratio>1 ? "中立" : "売り";
+        const valVerdict= ratio>1.5 ? "great" : ratio>1 ? "neu" : "sell";
+        const valLabel  = ratio>1.5 ? "買い"   : ratio>1 ? "中立" : "売り";
 
         const undervalPct = Number.isFinite(target) && price>0 ? (target/price-1)*100 : 0;
 
@@ -473,6 +473,7 @@
   </script>
 </body>
 </html>
+
 
 
 
