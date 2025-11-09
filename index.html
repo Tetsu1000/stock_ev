@@ -427,7 +427,7 @@
               h("div",{className:"row3"},
                 h("div",null, h("div",{className:"label"},"前期OP（億円）"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
                 h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
               )
             ),
             
@@ -473,3 +473,4 @@
   </script>
 </body>
 </html>
+
