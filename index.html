@@ -125,7 +125,7 @@
       const hit=qCache.get(key); if(hit && now-hit.at<TTL) return {price:hit.price,source:hit.source+" (cache)"};
       const fetchers=[fetchHosted,fetchYahoo,fetchStooq], maxRetry=3;
       for(let a=0;a<maxRetry;a++){
-        for(const f of fetchers){ try{ const res=await f(tk); qCache.set(key,{...res,at:Date.now()}); return res; }catch(_){} }
+        for(const f of fetchers){ try{ const res=await f(tk); qCache.set(key){...res,at:Date.now()}; return res; }catch(_){} }
         await sleep(250*Math.pow(1.6,a)+jitter());
       }
       return {price:null,source:null};
@@ -162,7 +162,8 @@
         const getOp = y=> toNum(g(`Op_${y}`,`OP_${y}`));
         const getFcf= y=> toNum(g(`FCF_${y}`));
         const getRoe= y=> parsePercentCell(g(`ROE_${y}`)); // ％ポイントで保持
-        const shareOku= toNum(g("share","Shares_Oku","share_oku"));
+        const industry = g("industry","Industry","業種");   // C列相当
+        const shareOku= toNum(g("share","Shares_Oku","share_oku")); // 内部計算で使用（UI 表示しない）
         const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
         const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
         const perVal= toNum(g("PER","per"));   // W列
@@ -171,6 +172,7 @@
           id:idx+1,
           name:   g("company","Company")||"",
           ticker: String(g("ticker","Ticker")||""),
+          industry: industry || "",
           op:  years.map(getOp),
           fcf: years.map(getFcf),
           roe: years.map(getRoe),
@@ -196,7 +198,7 @@
       appendLog(`URL loaded: ${wsName} / ${rows.length} rows`);
       if(rows.length){
         const a=rows[0];
-        appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / Op_2026=${a.opNowEst}, Op_2027=${a.opNextEst}, share=${a.sharesOku}億株`);
+        appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / 業種=${a.industry} / Op_2026=${a.opNowEst}, Op_2027=${a.opNextEst}`);
         fillFromRow(a, /*fetch*/true);
       }
     }
@@ -207,8 +209,9 @@
 
       const [name,setName]=React.useState("");
       const [ticker,setTicker]=React.useState("7203.T");
+      const [industry,setIndustry]=React.useState("");
       const [price,setPrice]=React.useState(0);
-      const [sharesOku,setSharesOku]=React.useState(0);
+      const [sharesOku,setSharesOku]=React.useState(0); // UI表示しないが内部計算用に保持
       const [per,setPer]=React.useState(null);
       const [pbr,setPbr]=React.useState(null);
       const [op,setOp]=React.useState([0,0,0,0,0]);
@@ -228,18 +231,8 @@
         if(px!=null){ setPrice(px); }
       }
 
-      // 手動Excel読込（任意）
-      async function handleExcel(e){
-        const file=e.target.files?.[0]; if(!file) return;
-        const buf=await file.arrayBuffer();
-        const {rows,wsName}=parseWorkbookToRows(buf, years);
-        setDataset(rows);
-        appendLog(`Excel loaded: ${wsName} / ${rows.length} rows`);
-        if(rows.length){ const a=rows[0]; fillFromRow(a, /*fetch*/true); }
-      }
-
       function fillFromRow(row, doFetch=false){
-        setName(row.name||""); setTicker(row.ticker||"");
+        setName(row.name||""); setTicker(row.ticker||""); setIndustry(row.industry||"");
         setOp(asArr(row.op)); setFcf(asArr(row.fcf)); setRoe(asArr(row.roe));
         setSharesOku(Number(row.sharesOku)||0);
         setOpNowEst(Number(row.opNowEst)||0); setOpNextEst(Number(row.opNextEst)||0);
@@ -249,7 +242,7 @@
         if(doFetch && row.ticker) refreshPrice();
       }
 
-      // ティッカー変更時は価格を自動取得（ボタンなし）
+      // ティッカー変更時は価格を自動取得
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
 
       // 起動時：GitHubの埋め込みデータを自動ロード（?data= があれば優先）
@@ -260,12 +253,13 @@
             await loadDatasetFromURL(override, years, setDataset, appendLog, fillFromRow);
           }catch(err){
             appendLog("初期ロード失敗: "+(err && err.message? err.message:err));
-            appendLog("→ 手動でExcelを読み込むか、?data= でURLを指定してください。");
+            appendLog("→ ?data= でURLを指定してください。");
           }
         })();
       },[]);
 
       /* === コホート（OP） === */
+      const mean=arr=>arr.reduce((a,b)=>a+b,0)/Math.max(1,arr.length);
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
@@ -290,12 +284,12 @@
           .map(a=>(a.length>=2? linreg(a).slope : null))
           .filter(x=>Number.isFinite(x));
         if(!slopes.length) return null;
-        const mu=mean(slopes);
+        const mu=slopes.reduce((s,v)=>s+v,0)/slopes.length;
         const sd=Math.max(1e-9,stdev(slopes));
         return {mu,sd};
       },[dataset]);
 
-      /* === 左ペイン計算 === */
+      /* === 算出 === */
       const calc=React.useMemo(()=>{
         const lr=linreg(op), mOP=Math.max(1e-9,mean(op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
@@ -313,7 +307,7 @@
 
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roeArr=asArr(roe).filter(Number.isFinite);
-        const lastRoe=Number.isFinite(roeArr[roeArr.length-1])? roeArr[roeArr.length-1]:0;
+        const lastRoe=Number.isFinite(roeArr.at(-1))? roeArr.at(-1):0;
         const lastRoeScore=6/(1+Math.exp(-25*(lastRoe-12)/12));
         const slope=roeArr.length>=2? linreg(roeArr).slope:0;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
@@ -332,7 +326,7 @@
           gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100; // 0〜5%
         }
 
-        // 簡略DCF
+        // 簡略DCF（sharesOku はUIには出さないが dataset から利用）
         const lastActual=Number(op[4])||0;
         const nowEst=Number(opNowEst)||0;
         const nextEst=Number(opNextEst)||0;
@@ -444,26 +438,25 @@
                   h("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
                 )
               ),
+              /* 行1：会社名／ティッカー */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"会社名"), h("input",{value:name,onChange:e=>setName(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"ティッカー（例 7203.T）"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)}))
               ),
+              /* 行2：業種／現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"普通株式数（億株）"), h("input",{value:sharesOku,onChange:e=>setSharesOku(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"業種"), h("input",{value:industry,onChange:e=>setIndustry(e.target.value)})),
+                h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
+              /* 行3：PER／PBR */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"PER"), h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
                 h("div",null, h("div",{className:"label"},"PBR"), h("input",{value: pbr??"", onChange:e=>setPbr(toNum(e.target.value)), inputMode:"decimal"}))
               ),
-              h("div",{className:"row3",style:{marginTop:10,alignItems:"end"}},
-                h("div",null, h("div",{className:"label"},"Excel 読込（任意）"), h("input",{type:"file",accept:".xlsx,.xls",onChange:handleExcel})),
-                h("div",null),
-                h("div",null)
-              ),
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
 
+            <!-- 業績・ROE 入力ボード -->
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"過去5年 営業利益（億円）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
@@ -530,7 +523,7 @@
               h("div",{className:"list"},
                 ranked.map(r=> h("div",{key:r.id,className:"rowitem",onClick:()=>fillFromRow(r,true),
                   title:`r=${prettyPct(r._s.r*100)} / gN=${prettyPct(r._s.gN*100)}（個別算出）\nクリックでフォームへ反映`},
-                  h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, (r.op||[]).slice(-2)[0] ? "OP trendあり" : "")),
+                  h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, r.industry || "")),
                   h("div",null,r.ticker||"-"),
                   h("div",null,(r._s.investScore).toFixed(2)),
                   h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
