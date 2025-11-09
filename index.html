@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ（ロバストz＋GitHub自動読込）</title>
+  <title>株式評価ミニ</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -440,7 +440,7 @@
               ),
               /* 2行目：ティッカー／現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"ティッカー（例 7203.T）"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)})),
+                h("div",null, h("div",{className:"label"},"ティッカー"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
               /* 3行目：PER／PBR */
@@ -450,37 +450,7 @@
               ),
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
-
-            /* 過去データ入力 */
-            h("div",{className:"card",style:{marginBottom:16}},
-              h("div",{className:"label"},"過去5年 営業利益（億円）"),
-              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:op[i]||0,onChange:e=>setOp(op.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
-              h("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
-              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:fcf[i]||0,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
-              h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
-              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"},
-                [0,1,2,3,4].map((i)=>h("input",{
-                  key:i,
-                  value: Number.isFinite(roe[i]) ? (Number(roe[i]).toFixed(2)+"%") : "",
-                  onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),
-                  inputMode:"decimal"
-                }))
-              )
-            ),
-
-            /* 予想OP */
-            h("div",{className:"card",style:{marginBottom:16}},
-              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
-              h("div",{className:"row3"},
-                h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
-              )
-            ),
-
+            
             /* === 企業評価（新UI） === */
             h("div",{className:"row",style:{marginBottom:16}},
               h("div",{className:"card"},
@@ -520,6 +490,37 @@
             h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
           ),
 
+            /* 過去データ入力 */
+            h("div",{className:"card",style:{marginBottom:16}},
+              h("div",{className:"label"},"過去5年 営業利益（億円）"),
+              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
+              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:op[i]||0,onChange:e=>setOp(op.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
+              h("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
+              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
+              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:fcf[i]||0,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
+              h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
+              h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
+              h("div",{className:"grid5"},
+                [0,1,2,3,4].map((i)=>h("input",{
+                  key:i,
+                  value: Number.isFinite(roe[i]) ? (Number(roe[i]).toFixed(2)+"%") : "",
+                  onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),
+                  inputMode:"decimal"
+                }))
+              )
+            ),
+
+            /* 予想OP */
+            h("div",{className:"card",style:{marginBottom:16}},
+              h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
+              h("div",{className:"row3"},
+                h("div",null, h("div",{className:"label"},"前期OP（億円）"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+              )
+            ),
+
+
           /* 右：一覧（投資スコア順） */
           h("div",null,
             h("div",{className:"card"},
@@ -548,3 +549,4 @@
   </script>
 </body>
 </html>
+
