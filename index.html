@@ -307,7 +307,7 @@
         const valVerdict= ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
         const valLabel  = ratio>2 ? "買い"   : ratio>1 ? "中立" : "売り";
 
-        const undervalPct = Number.isFinite(target) && price>0 ? (1-price/target)*100 : 0;
+        const undervalPct = Number.isFinite(target) && price>0 ? (target/price-1)*100 : 0;
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
@@ -399,7 +399,7 @@
                   h("span",{className:"headline"}, calc.investScore.toFixed(2))
                 ),
                 h("div",{className:"kpi",style:{marginTop:10}},
-                  h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
+                  h("div",{className:"box"}, h("div",{className:"muted"},"利益推移"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"資金創出"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
                 )
@@ -473,5 +473,6 @@
   </script>
 </body>
 </html>
+
 
 
