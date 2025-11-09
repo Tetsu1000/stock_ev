@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>株式評価ミニ</title>
+  <title>株式評価ミニ（ロバストz＋GitHub自動読込）</title>
   <style>
     :root{--fg:#0f172a;--muted:#64748b;--bg:#f8fafc;--line:#e2e8f0;}
     html,body{height:100%}
@@ -30,10 +30,13 @@
     .rowitem{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
     .rowitem:hover{background:#f1f5f9}
     .muted{color:#64748b;font-size:12px}
-    .hdr{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;margin:4px 0 8px;font-size:12px;color:var(--muted)}
+    .hdr{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;margin:4px 0 8px;font-size:12px;color:#64748b}
     .searchrow{display:grid;grid-template-columns:1fr;gap:12px}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
     .small{font-size:12px;color:#64748b;word-break:break-all}
+    .headrow{display:flex;align-items:center;gap:10px;justify-content:space-between}
+    .headrow h2{font-size:18px;margin:0;color:#0f172a}
+    .headline{font-size:24px;font-weight:800}
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin defer></script>
@@ -52,7 +55,7 @@
     const asArr=v=>Array.isArray(v)?v:[];
     const clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
     const pretty=(n)=>Number.isFinite(n)?n.toLocaleString():"-";
-    const prettyPct=(x)=>Number.isFinite(x)?(x.toFixed(2)+"%"):"-";
+    const prettyPct=(x)=>Number.isFinite(x)?(x>=0?"+":"")+x.toFixed(2)+"%":"-";
     const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
     const parsePercentCell=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number"){ return Math.abs(v)<=1? v*100 : v; } const s=String(v).trim(); if(s.endsWith("%")) return toNum(s.replace("%","")); const n=toNum(s); return Math.abs(n)<=1? n*100 : n; };
     const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length:0;
@@ -121,7 +124,7 @@
         for(const f of fetchers){
           try{
             const res=await f(tk);
-            qCache.set(key,{...res,at:Date.now()}); // ← 修正
+            qCache.set(key,{...res,at:Date.now()});
             return res;
           }catch(_){}
         }
@@ -162,7 +165,7 @@
         const getFcf= y=> toNum(g(`FCF_${y}`));
         const getRoe= y=> parsePercentCell(g(`ROE_${y}`));
         const industry = g("industry","Industry","業種");   // C列
-        const shareOku= toNum(g("share","Shares_Oku","share_oku")); // 内部で使用
+        const shareOku= toNum(g("share","Shares_Oku","share_oku"));
         const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
         const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
         const perVal= toNum(g("PER","per"));   // W列
@@ -210,7 +213,7 @@
       const [ticker,setTicker]=React.useState("7203.T");
       const [industry,setIndustry]=React.useState("");
       const [price,setPrice]=React.useState(0);
-      const [sharesOku,setSharesOku]=React.useState(0); // UI非表示
+      const [sharesOku,setSharesOku]=React.useState(0); // UI非表示（計算用）
       const [per,setPer]=React.useState(null);
       const [pbr,setPbr]=React.useState(null);
       const [op,setOp]=React.useState([0,0,0,0,0]);
@@ -242,7 +245,6 @@
       }
 
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
-
       React.useEffect(()=>{
         (async()=>{
           try{
@@ -255,6 +257,7 @@
         })();
       },[]);
 
+      /* === コホート計算 === */
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
@@ -262,8 +265,8 @@
         const invs=seDivs.map(x=>1/Math.max(1e-9,x));
         const muSlope=mean(slopeDivs), sdSlope=Math.max(1e-9,stdev(slopeDivs));
         const muSe=mean(seDivs), sdSe=Math.max(1e-9,stdev(seDivs));
-        const min1=Math.min.apply(null,slopeDivs), max1=Math.max.apply(null,slopeDivs);
-        const min2=Math.min.apply(null,invs),      max2=Math.max.apply(null,invs);
+        const min1=Math.min(...slopeDivs), max1=Math.max(...slopeDivs);
+        const min2=Math.min(...invs),      max2=Math.max(...invs);
         const medSlope=median(slopeDivs), madSlope=mad(slopeDivs);
         const medSe=median(seDivs),       madSe=mad(seDivs);
         const slopeSorted=slopeDivs.slice().sort((x,y)=>x-y);
@@ -283,6 +286,7 @@
         return {mu,sd};
       },[dataset]);
 
+      /* === 左ペインの集計 === */
       const calc=React.useMemo(()=>{
         const lr=linreg(op), mOP=Math.max(1e-9,mean(op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
@@ -309,15 +313,17 @@
 
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
+        // r / gN：ロバストz→ロジスティック
         let r=0.07,gN=0.025;
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
           const kr=1.2, kg=1.2;
-          r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
-          gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
+          r = smoothLogistic(seStd,   7.0, 3.0, kr)/100; // 4〜10%
+          gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100; // 0〜5%
         }
 
+        // 簡略DCF
         const lastActual=Number(op[4])||0;
         const nowEst=Number(opNowEst)||0;
         const nextEst=Number(opNextEst)||0;
@@ -332,13 +338,17 @@
         const pv =tv5/Math.pow(1+r,5);
         const target=(Number(sharesOku)||0)>0? pv/Number(sharesOku):0;
 
-        const ratio=price>0? target/price:0;
+        const ratio=price>0? target/price:0; // >1 割安
         const valVerdict= ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
         const valLabel  = ratio>2 ? "買い"   : ratio>1 ? "中立" : "売り";
 
-        return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel};
+        // 割安度スコア＝(目標株価÷現在株価 − 1)×100（割安→プラス）
+        const undervalPct = Number.isFinite(target) && price>0 ? (target/price - 1)*100 : 0;
+
+        return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
 
+      /* === 検索 === */
       function onSearchChange(v){
         setSearch(v);
         const key=v.trim().toLowerCase(); if(!key) return;
@@ -352,6 +362,7 @@
         if(hit) fillFromRow(hit,true);
       }
 
+      /* === 一覧スコア === */
       function scoreRow(row){
         const lr=linreg(row.op), mOP=Math.max(1e-9,mean(row.op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
@@ -405,12 +416,16 @@
         return {great,good};
       },[ranked]);
 
+      const invLabel = calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業";
+      const invCls   = calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great";
       const activeURL = getOverrideDataURL() || (URL_JSDELIVR + "（失敗時 raw に自動フォールバック）");
 
       return h(React.Fragment,null,
-        h("h1",null,"株式評価ミニ"),
+        h("h1",null,"株式評価ミニ（ロバストz＋GitHub自動読込）"),
         h("div",{className:"twocol"},
+          /* 左カラム */
           h("div",null,
+            /* 検索＋会社情報 */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"searchrow"},
                 h("div",null,
@@ -418,14 +433,17 @@
                   h("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
                 )
               ),
+              /* 1行目：会社名／業種 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"会社名"), h("input",{value:name,onChange:e=>setName(e.target.value)})),
-                h("div",null, h("div",{className:"label"},"業種"), h("input",{value:industry,onChange:e=>setTicker(e.target.value)}))
+                h("div",null, h("div",{className:"label"},"業種"), h("input",{value:industry,onChange:e=>setIndustry(e.target.value)}))
               ),
+              /* 2行目：ティッカー／現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"ティッカー"), h("input",{value:ticker,onChange:e=>setIndustry(e.target.value)})),
+                h("div",null, h("div",{className:"label"},"ティッカー（例 7203.T）"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
+              /* 3行目：PER／PBR */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"PER"), h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
                 h("div",null, h("div",{className:"label"},"PBR"), h("input",{value: pbr??"", onChange:e=>setPbr(toNum(e.target.value)), inputMode:"decimal"}))
@@ -433,6 +451,7 @@
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
 
+            /* 過去データ入力 */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"過去5年 営業利益（億円）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
@@ -452,41 +471,56 @@
               )
             ),
 
+            /* 予想OP */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
               h("div",{className:"row3"},
-                h("div",null, h("div",{className:"label"},"前期OP（億円）"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
-                h("div",null, h("div",{className:"label"},"今期OP予想（億円）"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"来期OP予想（億円）"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"前期OP（億円）※2025実績"), h("input",{className:"disabled",value:(op[4]||0),disabled:true})),
+                h("div",null, h("div",{className:"label"},"今期OP予想（億円）※Op_2026 を自動反映"), h("input",{value:opNowEst,onChange:e=>setOpNowEst(toNum(e.target.value)),inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"来期OP予想（億円・任意）※Op_2027 を自動反映"), h("input",{value:opNextEst,onChange:e=>setOpNextEst(toNum(e.target.value)),inputMode:"decimal"}))
               )
             ),
 
+            /* === 企業評価（新UI） === */
             h("div",{className:"row",style:{marginBottom:16}},
               h("div",{className:"card"},
-                h("div",{className:"label"},"投資スコア（魅力度の合計）"),
-                h("div",{className:"kpi"},
+                h("div",{className:"headrow"},
+                  h("h2",null,"企業評価"),
+                  h("span",{className:"pill "+(invLabel==="すばらしい企業"?"great":invLabel==="よい企業"?"good":invLabel==="様子見企業"?"neu":"sell")}, invLabel)
+                ),
+                h("div",{style:{marginTop:8,fontSize:18}},
+                  h("span",{className:"label"},"投資スコア"), " ",
+                  h("span",{className:"headline"}, calc.investScore.toFixed(2))
+                ),
+                h("div",{className:"kpi",style:{marginTop:10}},
                   h("div",{className:"box"}, h("div",{className:"muted"},"営業トレンド"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"資金創出"), h("div",null, h("b",null, Number(calc.fundGenScore).toFixed(2)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
-                ),
-                h("div",{style:{marginTop:10,fontSize:22,fontWeight:700}},"合計：", calc.investScore.toFixed(2)),
-                h("div",{style:{marginTop:8}}, h("span",{className:"pill "+(calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great")}, (calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業")))
+                )
               ),
 
+              /* === 割安度評価（新UI） === */
               h("div",{className:"card"},
-                h("div",{className:"label"},"割安度（目標株価と比較）"),
-                h("div",{className:"kpi"},
+                h("div",{className:"headrow"},
+                  h("h2",null,"割安度評価"),
+                  h("span",{className:"pill "+calc.valVerdict}, calc.valLabel)
+                ),
+                h("div",{style:{marginTop:8,fontSize:18}},
+                  h("span",{className:"label"},"割安度スコア"), " ",
+                  h("span",{className:"headline"}, prettyPct(calc.undervalPct))
+                ),
+                h("div",{className:"kpi",style:{marginTop:10}},
                   h("div",{className:"box"}, h("div",{className:"muted"},"期待収益率 r"), h("div",null, h("b",null, prettyPct(calc.r*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"成長率 gN"), h("div",null, h("b",null, prettyPct(calc.gN*100)))),
                   h("div",{className:"box"}, h("div",{className:"muted"},"目標株価"), h("div",null, h("b",null, pretty(calc.target))))
-                ),
-                h("div",{style:{marginTop:10}}, h("span",{className:"pill "+calc.valVerdict}, calc.valLabel))
+                )
               )
             ),
 
             h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
           ),
 
+          /* 右：一覧（投資スコア順） */
           h("div",null,
             h("div",{className:"card"},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
@@ -514,4 +548,3 @@
   </script>
 </body>
 </html>
-
