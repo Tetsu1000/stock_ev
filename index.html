@@ -443,7 +443,6 @@
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
               h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:Number.isFinite(roe[i])?(Number(roe[i]).toFixed(2)+"%"):"",onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),inputMode:"decimal"})))
             ),
-            
           ),
 
           /* 右：スクリーナー */
@@ -464,7 +463,6 @@
                 ))
               )
             )
-            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
           )
         )
       );
