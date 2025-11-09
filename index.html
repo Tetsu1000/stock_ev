@@ -15,7 +15,7 @@
     .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
     .twocol{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
     .label{font-size:12px;color:var(--muted);margin-bottom:6px}
-    input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px}
+    input, select{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px}
     input.disabled{background:#f8fafc;color:#64748b}
     .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
     .grid5-head{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:6px 0 4px}
@@ -53,6 +53,11 @@
     .notes-grid { font-size: 10px; }
     .note h3 { font-size: 14px; }
     .note p, .note li { line-height: 1.5; }
+
+    /* ▼ フィルターバー */
+    .filterbar{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin:8px 0 10px}
+    .clearbtn{background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;cursor:pointer}
+    .clearbtn:hover{background:#e2e8f0}
   </style>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
@@ -224,6 +229,10 @@
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
 
+      // ▼ 絞り込み用の状態
+      const [fIndustry, setFIndustry] = React.useState("");
+      const [fMarket, setFMarket] = React.useState("");
+
       const appendLog=s=>setLog(p=>`${p?p+"\n":""}${s}`);
 
       async function refreshPrice(){
@@ -388,7 +397,19 @@
       }
 
       const ranked=React.useMemo(()=> dataset.map(r=>({...r,_s:scoreRow(r)})).sort((a,b)=> b._s.investScore - a._s.investScore),[dataset,cohort,roeSlopeCohort]);
-      const counts=React.useMemo(()=>{ let great=0,good=0; ranked.forEach(r=>{ if(r._s.label==="すばらしい企業") great++; else if(r._s.label==="よい企業") good++; }); return {great,good}; },[ranked]);
+
+      // ▼ プルダウン候補
+      const uniq = (arr)=> Array.from(new Set(arr.filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ja'));
+      const industryOpts = React.useMemo(()=> uniq(dataset.map(r=>r.industry||"")), [dataset]);
+      const marketOpts   = React.useMemo(()=> uniq(dataset.map(r=>r.market||"")), [dataset]);
+
+      // ▼ 絞り込み後の配列
+      const filteredRanked = React.useMemo(()=> ranked.filter(r =>
+        (fIndustry? r.industry===fIndustry : true) &&
+        (fMarket  ? r.market===fMarket   : true)
+      ), [ranked, fIndustry, fMarket]);
+
+      const counts=React.useMemo(()=>{ let great=0,good=0; filteredRanked.forEach(r=>{ if(r._s.label==="すばらしい企業") great++; else if(r._s.label==="よい企業") good++; }); return {great,good}; },[filteredRanked]);
 
       const invLabel = calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業";
       const activeURL = getOverrideDataURL() || (URL_JSDELIVR + "（失敗時 raw に自動フォールバック）");
@@ -500,12 +521,35 @@
           h("div",null,
             h("div",{className:"card"},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
-                h("div",{style:{fontWeight:700}},"スクリーナー（投資スコア順・全件表示）"),
+                h("div",{style:{fontWeight:700}},`スクリーナー（投資スコア順・${filteredRanked.length}件）`),
                 h("div",null, h("span",{className:"tag"},"すばらしい: "+counts.great)," ",h("span",{className:"tag"},"よい: "+counts.good))
               ),
+
+              // ▼ フィルターバー（業種 / 市場区分 / クリア）
+              h("div",{className:"filterbar"},
+                h("div",null,
+                  h("div",{className:"label"},"業種で絞り込み"),
+                  h("select",{value:fIndustry,onChange:e=>setFIndustry(e.target.value)},
+                    h("option",{value:""},"全業種"),
+                    industryOpts.map(v=> h("option",{key:v,value:v},v))
+                  )
+                ),
+                h("div",null,
+                  h("div",{className:"label"},"市場区分で絞り込み"),
+                  h("select",{value:fMarket,onChange:e=>setFMarket(e.target.value)},
+                    h("option",{value:""},"全市場"),
+                    marketOpts.map(v=> h("option",{key:v,value:v},v))
+                  )
+                ),
+                h("div",null,
+                  h("div",{className:"label"}," "),
+                  h("button",{className:"clearbtn",onClick:()=>{setFIndustry("");setFMarket("");}},"条件クリア")
+                )
+              ),
+
               h("div",{className:"hdr"}, h("div",null,"会社名"), h("div",null,"ティッカー"), h("div",null,"投資スコア"), h("div",null,"評価")),
               h("div",{className:"list"},
-                ranked.map(r=> h("div",{key:r.id,className:"rowitem",onClick:()=>fillFromRow(r,true),
+                filteredRanked.map(r=> h("div",{key:r.id,className:"rowitem",onClick:()=>fillFromRow(r,true),
                   title:`r=${prettyPct(r._s.r*100)} / gN=${prettyPct(r._s.gN*100)}（個別算出）\nクリックでフォームへ反映`},
                   h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, (r.industry || "") + (r.market? `・${r.market}` : ""))),
                   h("div",null,r.ticker||"-"),
