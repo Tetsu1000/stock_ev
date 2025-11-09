@@ -51,42 +51,23 @@
     const React=window.React, ReactDOM=window.ReactDOM, XLSX=window.XLSX;
     const h=React.createElement;
 
-    /* ========= utils ========= */
-    const asArr=v=>Array.isArray(v)?v:[];
-    const clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
-    const pretty=(n)=>Number.isFinite(n)?n.toLocaleString():"-";
-    const prettyPct=(x)=>Number.isFinite(x)?(x>=0?"+":"")+x.toFixed(2)+"%":"-";
-    const toNum=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
-    const parsePercentCell=(v)=>{ if(v==null||v==="") return 0; if(typeof v==="number"){ return Math.abs(v)<=1? v*100 : v; } const s=String(v).trim(); if(s.endsWith("%")) return toNum(s.replace("%","")); const n=toNum(s); return Math.abs(n)<=1? n*100 : n; };
+    const asArr=v=>Array.isArray(v)?v:[], clamp=(x,a=0,b=100)=>Math.max(a,Math.min(b,x));
+    const pretty=n=>Number.isFinite(n)?n.toLocaleString():"-";
+    const prettyPct=x=>Number.isFinite(x)?(x>=0?"+":"")+x.toFixed(2)+"%":"-";
+    const toNum=v=>{ if(v==null||v==="") return 0; if(typeof v==="number") return v; const s=String(v).replace(/[, \u3000]/g,""); const m=s.match(/^([-+]?\d+(\.\d+)?)/); return m? Number(m[1]):0; };
+    const parsePercentCell=v=>{ if(v==null||v==="") return 0; if(typeof v==="number"){ return Math.abs(v)<=1? v*100 : v; } const s=String(v).trim(); if(s.endsWith("%")) return toNum(s.replace("%","")); const n=toNum(s); return Math.abs(n)<=1? n*100 : n; };
     const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length:0;
     const stdev=a=>{ const m=mean(a); const v=a.length? a.reduce((s,v)=>s+(v-m)**2,0)/a.length:0; return Math.sqrt(v); };
-    const linreg=(arr)=>{
-      const y=asArr(arr).map(v=>Number(v)||0);
-      const n=y.length; if(n<2) return {slope:0,intercept:0,se:0};
-      const x=Array.from({length:n},(_,i)=>i+1);
-      const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n;
-      const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0);
-      const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0);
-      const slope= den===0?0:num/den, intercept=my-slope*mx;
-      const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept));
-      const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2));
-      return {slope,intercept,se};
-    };
-
-    /* === ロジスティック === */
+    const linreg=arr=>{ const y=asArr(arr).map(v=>Number(v)||0); const n=y.length; if(n<2) return {slope:0,intercept:0,se:0}; const x=Array.from({length:n},(_,i)=>i+1); const mx=x.reduce((a,b)=>a+b,0)/n, my=y.reduce((a,b)=>a+b,0)/n; const num=x.reduce((s,xi,i)=>s+(xi-mx)*(y[i]-my),0); const den=x.reduce((s,xi)=>s+(xi-mx)*(xi-mx),0); const slope=den===0?0:num/den, intercept=my-slope*mx; const residuals=y.map((yi,i)=> yi-(slope*x[i]+intercept)); const se=Math.sqrt(residuals.reduce((a,b)=>a+b*b,0)/Math.max(1,n-2)); return {slope,intercept,se}; };
     function smoothLogistic(z, mid, half, k){ return mid + half * (2 / (1 + Math.exp(-k * z)) - 1); }
-
-    /* === ロバスト統計（median/MAD）＋ランク→logit フォールバック === */
     function median(a){ const b=[].concat(a||[]).sort((x,y)=>x-y); const n=b.length; return n? (n%2? b[(n-1)/2] : 0.5*(b[n/2-1]+b[n/2])):0; }
     function mad(a){ const m=median(a); const d=(a||[]).map(x=>Math.abs(x-m)); return median(d)||1e-9; }
     function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/Math.max(1,sorted.length):0.5; }
     function logit(p){ const e=1e-6; const q=Math.min(1-e, Math.max(e,p)); return Math.log(q/(1-q)); }
     function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ return logit(percentileOfSorted(sorted, x)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
-    /* === 相場価格（フォールバック3系統） === */
-    const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-    const jitter=(b=140)=> b + Math.floor(Math.random()*180);
-    const qCache=new Map(); const TTL=5*60*1000;
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms)), jitter=(b=140)=> b + Math.floor(Math.random()*180);
+    const qCache=new Map(), TTL=5*60*1000;
 
     async function fetchHosted(tk){
       const r=await fetch(`https://stock-quote-api-opal.vercel.app/api/quote?ticker=${encodeURIComponent(tk)}`);
@@ -133,14 +114,11 @@
       return {price:null,source:null};
     }
 
-    /* === GitHub 埋め込みデータ設定（jsDelivr→raw の順で自動フォールバック） === */
     const GH_OWNER="Tetsu1000", GH_REPO="stock_ev", GH_BRANCH="main";
     const URL_JSDELIVR=`https://cdn.jsdelivr.net/gh/${GH_OWNER}/${GH_REPO}@${GH_BRANCH}/dataset.xlsx`;
     const URL_RAW     =`https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_BRANCH}/dataset.xlsx`;
 
-    function getOverrideDataURL(){
-      try{ const u=new URL(window.location.href); const q=u.searchParams.get("data"); return q && q.trim()? q.trim():null; }catch(_){ return null; }
-    }
+    function getOverrideDataURL(){ try{ const u=new URL(window.location.href); const q=u.searchParams.get("data"); return q && q.trim()? q.trim():null; }catch(_){ return null; } }
     function buster(u){ const sep=u.includes("?")?"&":"?"; return u+sep+"_="+Date.now(); }
     async function fetchArrayBufferWithFallback(urls){
       let lastErr=null;
@@ -164,18 +142,18 @@
         const getOp = y=> toNum(g(`Op_${y}`,`OP_${y}`));
         const getFcf= y=> toNum(g(`FCF_${y}`));
         const getRoe= y=> parsePercentCell(g(`ROE_${y}`));
-        const industry = g("industry","Industry","業種");   // C列
-        const shareOku= toNum(g("share","Shares_Oku","share_oku"));
+        const industry = g("industry","Industry","業種");
+        const shareOku = toNum(g("share","Shares_Oku","share_oku"));
         const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
         const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
-        const perVal= toNum(g("PER","per"));   // W列
-        const pbrVal= toNum(g("PBR","pbr"));   // X列
+        const perVal= toNum(g("PER","per"));
+        const pbrVal= toNum(g("PBR","pbr"));
         return {
           id:idx+1,
-          name:   g("company","Company")||"",
+          name: g("company","Company")||"",
           ticker: String(g("ticker","Ticker")||""),
           industry: industry || "",
-          op:  years.map(getOp),
+          op: years.map(getOp),
           fcf: years.map(getFcf),
           roe: years.map(getRoe),
           sharesOku: Number(shareOku)||0,
@@ -191,8 +169,7 @@
 
     async function loadDatasetFromURL(urlOrNull, years, setDataset, appendLog, fillFromRow){
       const custom=urlOrNull && urlOrNull.trim();
-      const urls = custom ? [buster(custom)]
-                          : [buster(URL_JSDELIVR), buster(URL_RAW)];
+      const urls = custom ? [buster(custom)] : [buster(URL_JSDELIVR), buster(URL_RAW)];
       appendLog("loading from URL:\n" + (custom || URL_JSDELIVR + " → fallback raw"));
       const buf = await fetchArrayBufferWithFallback(urls);
       const {rows,wsName}=parseWorkbookToRows(buf, years);
@@ -201,11 +178,10 @@
       if(rows.length){
         const a=rows[0];
         appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / 業種=${a.industry}`);
-        fillFromRow(a, /*fetch*/true);
+        fillFromRow(a,true);
       }
     }
 
-    /* === アプリ === */
     function App(){
       const years=[2021,2022,2023,2024,2025];
 
@@ -213,7 +189,7 @@
       const [ticker,setTicker]=React.useState("7203.T");
       const [industry,setIndustry]=React.useState("");
       const [price,setPrice]=React.useState(0);
-      const [sharesOku,setSharesOku]=React.useState(0); // UI非表示（計算用）
+      const [sharesOku,setSharesOku]=React.useState(0);
       const [per,setPer]=React.useState(null);
       const [pbr,setPbr]=React.useState(null);
       const [op,setOp]=React.useState([0,0,0,0,0]);
@@ -225,7 +201,7 @@
       const [log,setLog]=React.useState("");
       const [search,setSearch]=React.useState("");
 
-      const appendLog=(s)=>setLog(p=>`${p?p+"\n":""}${s}`);
+      const appendLog=s=>setLog(p=>`${p?p+"\n":""}${s}`);
 
       async function refreshPrice(){
         const tk=(ticker||"").trim(); if(!tk){ appendLog("ticker が空です"); return; }
@@ -245,19 +221,14 @@
       }
 
       React.useEffect(()=>{ if((ticker||"").trim()) refreshPrice(); },[ticker]);
-      React.useEffect(()=>{
-        (async()=>{
-          try{
-            const override=getOverrideDataURL();
-            await loadDatasetFromURL(override, years, setDataset, appendLog, fillFromRow);
-          }catch(err){
-            appendLog("初期ロード失敗: "+(err && err.message? err.message:err));
-            appendLog("→ ?data= でURLを指定してください。");
-          }
-        })();
-      },[]);
+      React.useEffect(()=>{ (async()=>{ try{
+          const override=getOverrideDataURL();
+          await loadDatasetFromURL(override, years, setDataset, appendLog, fillFromRow);
+        }catch(err){
+          appendLog("初期ロード失敗: "+(err && err.message? err.message:err));
+          appendLog("→ ?data= でURLを指定してください。");
+        }})(); },[]);
 
-      /* === コホート計算 === */
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
@@ -276,17 +247,13 @@
 
       const roeSlopeCohort=React.useMemo(()=>{
         if(!dataset.length) return null;
-        const slopes=dataset
-          .map(r=>asArr(r.roe).filter(Number.isFinite))
-          .map(a=>(a.length>=2? linreg(a).slope : null))
-          .filter(x=>Number.isFinite(x));
+        const slopes=dataset.map(r=>asArr(r.roe).filter(Number.isFinite)).map(a=>(a.length>=2? linreg(a).slope : null)).filter(x=>Number.isFinite(x));
         if(!slopes.length) return null;
         const mu=slopes.reduce((s,v)=>s+v,0)/slopes.length;
         const sd=Math.max(1e-9,stdev(slopes));
         return {mu,sd};
       },[dataset]);
 
-      /* === 左ペインの集計 === */
       const calc=React.useMemo(()=>{
         const lr=linreg(op), mOP=Math.max(1e-9,mean(op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
@@ -313,17 +280,15 @@
 
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
-        // r / gN：ロバストz→ロジスティック
         let r=0.07,gN=0.025;
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
           const kr=1.2, kg=1.2;
-          r = smoothLogistic(seStd,   7.0, 3.0, kr)/100; // 4〜10%
-          gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100; // 0〜5%
+          r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
+          gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
         }
 
-        // 簡略DCF
         const lastActual=Number(op[4])||0;
         const nowEst=Number(opNowEst)||0;
         const nextEst=Number(opNextEst)||0;
@@ -338,35 +303,21 @@
         const pv =tv5/Math.pow(1+r,5);
         const target=(Number(sharesOku)||0)>0? pv/Number(sharesOku):0;
 
-        const ratio=price>0? target/price:0; // >1 割安
+        const ratio=price>0? target/price:0;
         const valVerdict= ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
         const valLabel  = ratio>2 ? "買い"   : ratio>1 ? "中立" : "売り";
 
-        // 割安度スコア＝(目標株価÷現在株価 − 1)×100（割安→プラス）
         const undervalPct = Number.isFinite(target) && price>0 ? (target/price - 1)*100 : 0;
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
 
-      /* === 検索 === */
-      function onSearchChange(v){
-        setSearch(v);
-        const key=v.trim().toLowerCase(); if(!key) return;
-        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
-        if(hit) fillFromRow(hit,false);
-      }
-      function onSearchEnter(e){
-        if(e.key!=="Enter") return;
-        const key=search.trim().toLowerCase();
-        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
-        if(hit) fillFromRow(hit,true);
-      }
+      function onSearchChange(v){ setSearch(v); const key=v.trim().toLowerCase(); if(!key) return; const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key)); if(hit) fillFromRow(hit,false); }
+      function onSearchEnter(e){ if(e.key!=="Enter") return; const key=search.trim().toLowerCase(); const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key)); if(hit) fillFromRow(hit,true); }
 
-      /* === 一覧スコア === */
       function scoreRow(row){
         const lr=linreg(row.op), mOP=Math.max(1e-9,mean(row.op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
-
         let growthScore=50, breScore=50, opTrendScore=0;
         if(cohort){
           const mm1=(slopeDiv-cohort.min1)/Math.max(1e-9,cohort.max1-cohort.min1);
@@ -376,7 +327,6 @@
           breScore   =clamp(mm2*100,0,100);
           opTrendScore=((growthScore+breScore)/2)*0.05;
         }
-
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roePct[4])? roePct[4]:0;
@@ -385,19 +335,17 @@
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
         const barrierScore=lastRoeScore+roeGrowthScore;
-
         const fundGenScore=asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
         let r=0.07,gN=0.025;
         if(cohort){
-          const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
-          const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
+          const seStd = zRobust(seDiv,cohort.medSe,cohort.madSe,cohort.seSorted);
+          const slopeStd=zRobust(slopeDiv,cohort.medSlope,cohort.madSlope,cohort.slopeSorted);
           const kr=1.2, kg=1.2;
-          r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
-          gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
+          r=smoothLogistic(seStd,7.0,3.0,kr)/100;
+          gN=smoothLogistic(slopeStd,2.5,2.5,kg)/100;
         }
-
         let label="",cls="";
         if(investScore<8){ label="売るべき企業"; cls="sell"; }
         else if(investScore<10){ label="様子見企業"; cls="neu"; }
@@ -406,26 +354,17 @@
         return {investScore,label,cls,r,gN};
       }
 
-      const ranked=React.useMemo(()=> dataset
-        .map(r=>({...r,_s:scoreRow(r)}))
-        .sort((a,b)=> b._s.investScore - a._s.investScore)
-      ,[dataset,cohort,roeSlopeCohort]);
-
-      const counts=React.useMemo(()=>{
-        let great=0,good=0; ranked.forEach(r=>{ if(r._s.label==="すばらしい企業") great++; else if(r._s.label==="よい企業") good++; });
-        return {great,good};
-      },[ranked]);
+      const ranked=React.useMemo(()=> dataset.map(r=>({...r,_s:scoreRow(r)})).sort((a,b)=> b._s.investScore - a._s.investScore),[dataset,cohort,roeSlopeCohort]);
+      const counts=React.useMemo(()=>{ let great=0,good=0; ranked.forEach(r=>{ if(r._s.label==="すばらしい企業") great++; else if(r._s.label==="よい企業") good++; }); return {great,good}; },[ranked]);
 
       const invLabel = calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業";
-      const invCls   = calc.investScore<8?"sell":calc.investScore<10?"neu":calc.investScore<12?"good":"great";
       const activeURL = getOverrideDataURL() || (URL_JSDELIVR + "（失敗時 raw に自動フォールバック）");
 
       return h(React.Fragment,null,
-        h("h1",null,"株式評価ミニ（ロバストz＋GitHub自動読込）"),
+        h("h1",null,"株式評価ミニ"),
         h("div",{className:"twocol"},
-          /* 左カラム */
           h("div",null,
-            /* 検索＋会社情報 */
+            /* 企業情報 */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"searchrow"},
                 h("div",null,
@@ -433,25 +372,22 @@
                   h("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
                 )
               ),
-              /* 1行目：会社名／業種 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"会社名"), h("input",{value:name,onChange:e=>setName(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"業種"), h("input",{value:industry,onChange:e=>setIndustry(e.target.value)}))
               ),
-              /* 2行目：ティッカー／現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"ティッカー"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
-              /* 3行目：PER／PBR */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"PER"), h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
                 h("div",null, h("div",{className:"label"},"PBR"), h("input",{value: pbr??"", onChange:e=>setPbr(toNum(e.target.value)), inputMode:"decimal"}))
               ),
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
-            
-            /* === 企業評価（新UI） === */
+
+            /* 企業評価・割安度評価（↑へ移動） */
             h("div",{className:"row",style:{marginBottom:16}},
               h("div",{className:"card"},
                 h("div",{className:"headrow"},
@@ -468,8 +404,6 @@
                   h("div",{className:"box"}, h("div",{className:"muted"},"参入障壁"), h("div",null, h("b",null, Number(calc.barrierScore).toFixed(2))))
                 )
               ),
-
-              /* === 割安度評価（新UI） === */
               h("div",{className:"card"},
                 h("div",{className:"headrow"},
                   h("h2",null,"割安度評価"),
@@ -487,30 +421,20 @@
               )
             ),
 
-            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
-          ),
-
-            /* 過去データ入力 */
+            /* ヒストリカルデータ（↓へ移動） */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"過去5年 営業利益（億円）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:op[i]||0,onChange:e=>setOp(op.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
+              h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:op[i]||0,onChange:e=>setOp(op.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
               h("div",{className:"label",style:{marginTop:12}},"過去5年 FCF（億円）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"}, [0,1,2,3,4].map((i)=>h("input",{key:i,value:fcf[i]||0,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
+              h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:fcf[i]||0,onChange:e=>setFcf(fcf.map((x,j)=>j===i?toNum(e.target.value):x)),inputMode:"decimal"}))),
               h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
-              h("div",{className:"grid5"},
-                [0,1,2,3,4].map((i)=>h("input",{
-                  key:i,
-                  value: Number.isFinite(roe[i]) ? (Number(roe[i]).toFixed(2)+"%") : "",
-                  onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),
-                  inputMode:"decimal"
-                }))
-              )
+              h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:Number.isFinite(roe[i])?(Number(roe[i]).toFixed(2)+"%"):"",onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),inputMode:"decimal"})))
             ),
 
-            /* 予想OP */
+            /* コンセンサス予想（↓へ移動） */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
               h("div",{className:"row3"},
@@ -520,8 +444,10 @@
               )
             ),
 
+            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
+          ),
 
-          /* 右：一覧（投資スコア順） */
+          /* 右：スクリーナー */
           h("div",null,
             h("div",{className:"card"},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
@@ -549,4 +475,3 @@
   </script>
 </body>
 </html>
-
