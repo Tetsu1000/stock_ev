@@ -307,7 +307,7 @@
         const valVerdict= ratio>2 ? "great" : ratio>1 ? "neu" : "sell";
         const valLabel  = ratio>2 ? "買い"   : ratio>1 ? "中立" : "売り";
 
-        const undervalPct = Number.isFinite(target) && price>0 ? (target/price - 1)*100 : 0;
+        const undervalPct = Number.isFinite(target) && price>0 ? (1-price/target)*100 : 0;
 
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
@@ -473,4 +473,5 @@
   </script>
 </body>
 </html>
+
 
