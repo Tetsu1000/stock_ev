@@ -49,12 +49,12 @@
       .twocol{grid-template-columns:1fr}
       .notes-grid{grid-template-columns:1fr}
     }
-    /* 追加 */
-    .notes-grid { font-size: 10px; }   /* 本文 */
-    .note h3 { font-size: 14px; }      /* 見出しは少しだけ大きく */
+    /* 追加：注意書きの文字サイズ調整 */
+    .notes-grid { font-size: 10px; }
+    .note h3 { font-size: 14px; }
     .note p, .note li { line-height: 1.5; }
-
   </style>
+
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
@@ -80,8 +80,7 @@
     function median(a){ const b=[].concat(a||[]).sort((x,y)=>x-y); const n=b.length; return n? (n%2? b[(n-1)/2] : 0.5*(b[n/2-1]+b[n/2])):0; }
     function mad(a){ const m=median(a); const d=(a||[]).map(x=>Math.abs(x-m)); return median(d)||1e-9; }
     function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/Math.max(1,sorted.length):0.5; }
-    function logit(p){ const e=1e-6; const q=Math.min(1-e, Math.max(e,p)); return Math.log(q/(q)); }
-    function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ return Math.log(Math.min(0.999999,Math.max(0.000001,percentileOfSorted(sorted, x)))/Math.max(0.000001,1-percentileOfSorted(sorted, x))); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
+    function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ const p=percentileOfSorted(sorted, x); const e=1e-6; const q=Math.min(1-e,Math.max(e,p)); return Math.log(q/(1-q)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
     const sleep=ms=>new Promise(r=>setTimeout(r,ms)), jitter=(b=140)=> b + Math.floor(Math.random()*180);
     const qCache=new Map(), TTL=5*60*1000;
@@ -154,22 +153,28 @@
       const wsName=wb.SheetNames.includes("information")?"information":wb.SheetNames[0];
       const ws=wb.Sheets[wsName];
       const json=XLSX.utils.sheet_to_json(ws,{defval:null});
+
       const rows=(Array.isArray(json)?json:[]).map((r,idx)=>{
         const g=(k,...alts)=> r[k]!=null? r[k] : (alts.find(a=>r[a]!=null) ? r[alts.find(a=>r[a]!=null)] : null);
         const getOp = y=> toNum(g(`Op_${y}`,`OP_${y}`));
         const getFcf= y=> toNum(g(`FCF_${y}`));
         const getRoe= y=> parsePercentCell(g(`ROE_${y}`));
+
         const industry = g("industry","Industry","業種");
+        const market   = g("market","Market","市場区分","市場","Market Section","Listing Market","MarketSegment");
+
         const shareOku = toNum(g("share","Shares_Oku","share_oku"));
         const opNow = toNum(g("Op_2026","OP_2026","OP_now","今期OP予想"));
         const opNext= toNum(g("Op_2027","OP_2027","OP_next","来期OP予想"));
         const perVal= toNum(g("PER","per"));
         const pbrVal= toNum(g("PBR","pbr"));
+
         return {
           id:idx+1,
           name: g("company","Company")||"",
           ticker: String(g("ticker","Ticker")||""),
           industry: industry || "",
+          market: market || "",
           op: years.map(getOp),
           fcf: years.map(getFcf),
           roe: years.map(getRoe),
@@ -194,7 +199,7 @@
       appendLog(`URL loaded: ${wsName} / ${rows.length} rows`);
       if(rows.length){
         const a=rows[0];
-        appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / 業種=${a.industry}`);
+        appendLog(`→ 初期反映: ${a.name} (${a.ticker}) / 業種=${a.industry} / 市場=${a.market}`);
         fillFromRow(a,true);
       }
     }
@@ -205,6 +210,7 @@
       const [name,setName]=React.useState("");
       const [ticker,setTicker]=React.useState("7203.T");
       const [industry,setIndustry]=React.useState("");
+      const [market,setMarket]=React.useState("");
       const [price,setPrice]=React.useState(0);
       const [sharesOku,setSharesOku]=React.useState(0);
       const [per,setPer]=React.useState(null);
@@ -227,7 +233,7 @@
       }
 
       function fillFromRow(row, doFetch=false){
-        setName(row.name||""); setTicker(row.ticker||""); setIndustry(row.industry||"");
+        setName(row.name||""); setTicker(row.ticker||""); setIndustry(row.industry||""); setMarket(row.market||"");
         setOp(asArr(row.op)); setFcf(asArr(row.fcf)); setRoe(asArr(row.roe));
         setSharesOku(Number(row.sharesOku)||0);
         setOpNowEst(Number(row.opNowEst)||0); setOpNextEst(Number(row.opNextEst)||0);
@@ -329,8 +335,18 @@
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
 
-      function onSearchChange(v){ setSearch(v); const key=v.trim().toLowerCase(); if(!key) return; const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key)); if(hit) fillFromRow(hit,false); }
-      function onSearchEnter(e){ if(e.key!=="Enter") return; const key=search.trim().toLowerCase(); const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key)); if(hit) fillFromRow(hit,true); }
+      function onSearchChange(v){
+        setSearch(v);
+        const key=v.trim().toLowerCase(); if(!key) return;
+        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
+        if(hit) fillFromRow(hit,false);
+      }
+      function onSearchEnter(e){
+        if(e.key!=="Enter") return;
+        const key=search.trim().toLowerCase();
+        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
+        if(hit) fillFromRow(hit,true);
+      }
 
       function scoreRow(row){
         const lr=linreg(row.op), mOP=Math.max(1e-9,mean(row.op));
@@ -377,6 +393,8 @@
       const invLabel = calc.investScore<8?"売るべき企業":calc.investScore<10?"様子見企業":calc.investScore<12?"よい企業":"すばらしい企業";
       const activeURL = getOverrideDataURL() || (URL_JSDELIVR + "（失敗時 raw に自動フォールバック）");
 
+      const displayCompany = `${name || ""}${ticker ? `（${ticker}）` : ""}`;
+
       return h(React.Fragment,null,
         h("h1",null,"株式評価ミニ"),
         h("div",{className:"twocol"},
@@ -389,17 +407,33 @@
                   h("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
                 )
               ),
+
+              /* ▼ 変更後の並び：会社名（ティッカー） / 現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"会社名"), h("input",{value:name,onChange:e=>setName(e.target.value)})),
-                h("div",null, h("div",{className:"label"},"業種"), h("input",{value:industry,onChange:e=>setIndustry(e.target.value)}))
+                h("div",null, h("div",{className:"label"},"会社名"),
+                  h("input",{className:"disabled",value:displayCompany,disabled:true})
+                ),
+                h("div",null, h("div",{className:"label"},"現在株価（円）"),
+                  h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"})
+                )
               ),
+
+              /* ▼ 2行目：業種 / 市場区分（dataset.xlsx Y列） */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"ティッカー"), h("input",{value:ticker,onChange:e=>setTicker(e.target.value)})),
-                h("div",null, h("div",{className:"label"},"現在株価（円）"), h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"業種"),
+                  h("input",{value:industry,onChange:e=>setIndustry(e.target.value)})
+                ),
+                h("div",null, h("div",{className:"label"},"市場区分"),
+                  h("input",{value:market,onChange:e=>setMarket(e.target.value)})
+                )
               ),
+
+              /* ▼ 3行目：PER / PBR */
               h("div",{className:"row",style:{marginTop:10}},
-                h("div",null, h("div",{className:"label"},"PER"), h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
-                h("div",null, h("div",{className:"label"},"PBR"), h("input",{value: pbr??"", onChange:e=>setPbr(toNum(e.target.value)), inputMode:"decimal"}))
+                h("div",null, h("div",{className:"label"},"PER"),
+                  h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
+                h("div",null, h("div",{className:"label"},"PBR"),
+                  h("input",{value: pbr??"", onChange:e=>setPbr(toNum(e.target.value)), inputMode:"decimal"}))
               ),
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
@@ -413,7 +447,7 @@
                 ),
                 h("div",{style:{marginTop:8,fontSize:18}},
                   h("span",{className:"label"},"投資スコア"), " ",
-                  h("span",{className:"headline"}, calc.investScore.toFixed(2))
+                  h("span",{className:"headline"}, Number(calc.investScore).toFixed(2))
                 ),
                 h("div",{className:"kpi",style:{marginTop:10}},
                   h("div",{className:"box"}, h("div",{className:"muted"},"利益推移"), h("div",null, h("b",null, Number(calc.opTrendScore).toFixed(2)))),
@@ -473,7 +507,7 @@
               h("div",{className:"list"},
                 ranked.map(r=> h("div",{key:r.id,className:"rowitem",onClick:()=>fillFromRow(r,true),
                   title:`r=${prettyPct(r._s.r*100)} / gN=${prettyPct(r._s.gN*100)}（個別算出）\nクリックでフォームへ反映`},
-                  h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, r.industry || "")),
+                  h("div",null, h("div",null,r.name||"-"), h("div",{className:"muted"}, (r.industry || "") + (r.market? `・${r.market}` : ""))),
                   h("div",null,r.ticker||"-"),
                   h("div",null,(r._s.investScore).toFixed(2)),
                   h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
@@ -527,8 +561,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
