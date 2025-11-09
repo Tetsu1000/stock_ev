@@ -323,7 +323,7 @@
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
-          const kr=2.0, kg=0.25;
+          const kr=2.0, kg=0.5;
           r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
           gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
         }
@@ -399,7 +399,7 @@
         if(cohort){
           const seStd = zRobust(seDiv,cohort.medSe,cohort.madSe,cohort.seSorted);
           const slopeStd=zRobust(slopeDiv,cohort.medSlope,cohort.madSlope,cohort.slopeSorted);
-          const kr=2.0, kg=0.25;
+          const kr=2.0, kg=0.5;
           r=smoothLogistic(seStd,7.0,3.0,kr)/100;
           gN=smoothLogistic(slopeStd,2.5,2.5,kg)/100;
         }
@@ -621,6 +621,7 @@
   </script>
 </body>
 </html>
+
 
 
 
