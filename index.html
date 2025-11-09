@@ -37,6 +37,18 @@
     .headrow{display:flex;align-items:center;gap:10px;justify-content:space-between}
     .headrow h2{font-size:18px;margin:0;color:#0f172a}
     .headline{font-size:24px;font-weight:800}
+
+    /* ▼ 注意書き（2列レイアウト） */
+    .notes-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .note h3{font-size:16px;margin:0 0 8px}
+    .note p{margin:8px 0 6px;color:#334155;font-size:14px}
+    .note ul{margin:6px 0 0 1.2em;padding:0}
+    .note li{margin:4px 0}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#0f172a;font-size:12px}
+    @media (max-width:980px){
+      .twocol{grid-template-columns:1fr}
+      .notes-grid{grid-template-columns:1fr}
+    }
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin defer></script>
@@ -63,8 +75,8 @@
     function median(a){ const b=[].concat(a||[]).sort((x,y)=>x-y); const n=b.length; return n? (n%2? b[(n-1)/2] : 0.5*(b[n/2-1]+b[n/2])):0; }
     function mad(a){ const m=median(a); const d=(a||[]).map(x=>Math.abs(x-m)); return median(d)||1e-9; }
     function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/Math.max(1,sorted.length):0.5; }
-    function logit(p){ const e=1e-6; const q=Math.min(1-e, Math.max(e,p)); return Math.log(q/(1-q)); }
-    function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ return logit(percentileOfSorted(sorted, x)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
+    function logit(p){ const e=1e-6; const q=Math.min(1-e, Math.max(e,p)); return Math.log(q/(q)); }
+    function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ return Math.log(Math.min(0.999999,Math.max(0.000001,percentileOfSorted(sorted, x)))/Math.max(0.000001,1-percentileOfSorted(sorted, x))); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
     const sleep=ms=>new Promise(r=>setTimeout(r,ms)), jitter=(b=140)=> b + Math.floor(Math.random()*180);
     const qCache=new Map(), TTL=5*60*1000;
@@ -387,7 +399,7 @@
               h("div",{className:"small",style:{marginTop:6}},"Data URL: ", activeURL)
             ),
 
-            /* 企業評価・割安度評価（↑へ移動） */
+            /* 企業評価・割安度評価 */
             h("div",{className:"row",style:{marginBottom:16}},
               h("div",{className:"card"},
                 h("div",{className:"headrow"},
@@ -421,7 +433,7 @@
               )
             ),
 
-            /* コンセンサス予想（↓へ移動） */
+            /* コンセンサス予想 */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"OP（前期/今期/来期 予想）"),
               h("div",{className:"row3"},
@@ -431,7 +443,7 @@
               )
             ),
             
-            /* ヒストリカルデータ（↓へ移動） */
+            /* ヒストリカルデータ */
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"label"},"過去5年 営業利益（億円）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
@@ -442,7 +454,7 @@
               h("div",{className:"label",style:{marginTop:12}},"過去5年 ROE（%）"),
               h("div",{className:"grid5-head"}, [2021,2022,2023,2024,2025].map(y=>h("div",{key:y},y))),
               h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:Number.isFinite(roe[i])?(Number(roe[i]).toFixed(2)+"%"):"",onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),inputMode:"decimal"})))
-            ),
+            )
           ),
 
           /* 右：スクリーナー */
@@ -462,6 +474,38 @@
                   h("div",null, h("span",{className:"pill "+r._s.cls}, r._s.label))
                 ))
               )
+            ),
+
+            /* ▼ スクリーナー下の注意書き（2列） */
+            h("div",{className:"card",style:{marginTop:16}},
+              h("div",{className:"notes-grid"},
+                h("div",{className:"note"},
+                  h("h3",null,"○ 企業評価について ", h("span",{className:"badge"},"投資スコアで分類")),
+                  h("p",null,"投資スコアによって次のように分類します。"),
+                  h("ul",null,
+                    h("li",null,"投資スコア ＞ 12  … 「すばらしい企業」"),
+                    h("li",null,"投資スコア ＞ 10  … 「よい企業」"),
+                    h("li",null,"投資スコア ＞  8  … 「様子見企業」"),
+                    h("li",null,"その他　　　　 …… 「売るべき企業」")
+                  ),
+                  h("p",null,"投資スコアは以下3つのスコアの和です。"),
+                  h("ul",null,
+                    h("li",null,"利益成長：営業利益のヒストリカルデータから算出した成長性・安定性スコア"),
+                    h("li",null,"資金創出：FCFのヒストリカルデータから算出したスコア"),
+                    h("li",null,"参入障壁：ROEのヒストリカルデータから算出したスコア")
+                  )
+                ),
+                h("div",{className:"note"},
+                  h("h3",null,"○ 割安度評価について ", h("span",{className:"badge"},"目標株価 vs 現在株価")),
+                  h("p",null,"現在株価に対する目標株価の乖離率により分類します。"),
+                  h("ul",null,
+                    h("li",null,"目標株価が現在株価を +50% 上回る … 「買い」"),
+                    h("li",null,"目標株価が現在株価を上回る　　 … 「中立」"),
+                    h("li",null,"その他　　　　　　　　　　　　 … 「売り」")
+                  ),
+                  h("p",null,"目標株価は、SPCIQから取得した営業利益のコンセンサス予想、ならびに期待収益率 r と成長率 gN から算出します。期待収益率・成長率は営業利益のヒストリカルデータから推計しています。")
+                )
+              )
             )
           )
         )
@@ -473,20 +517,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
