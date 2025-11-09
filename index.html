@@ -444,9 +444,6 @@
               h("div",{className:"grid5"}, [0,1,2,3,4].map(i=>h("input",{key:i,value:Number.isFinite(roe[i])?(Number(roe[i]).toFixed(2)+"%"):"",onChange:e=>setRoe(roe.map((x,j)=> j===i ? parsePercentCell(e.target.value) : x)),inputMode:"decimal"})))
             ),
 
-            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
-          ),
-
           /* 右：スクリーナー */
           h("div",null,
             h("div",{className:"card"},
@@ -465,6 +462,8 @@
                 ))
               )
             )
+            h("div",{className:"card"}, h("div",{className:"label"},"ログ（新しい順）"), h("div",{className:"log"}, log||"—"))
+          ),
           )
         )
       );
@@ -475,5 +474,6 @@
   </script>
 </body>
 </html>
+
 
 
