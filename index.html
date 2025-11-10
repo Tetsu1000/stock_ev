@@ -32,7 +32,7 @@
     .muted{color:#64748b;font-size:12px}
     .hdr{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;margin:4px 0 8px;font-size:12px;color:#64748b}
     .searchrow{display:grid;grid-template-columns:1fr;gap:12px}
-    .searchbar{display:grid;grid-template-columns:1fr auto;gap:8px}
+    .searchbar{display:grid;grid-template-columns:1fr auto;gap:8px;position:relative} /* ▼ ドロップダウンを重ねるため relative */
     .statusrow{display:flex;align-items:center;justify-content:space-between}
     .status-msg{font-size:12px;color:#dc2626}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
@@ -46,10 +46,7 @@
     .note ul{margin:6px 0 0 1.2em;padding:0}
     .note li{margin:4px 0}
     .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#0f172a;font-size:12px}
-    @media (max-width:980px){
-      .twocol{grid-template-columns:1fr}
-      .notes-grid{grid-template-columns:1fr}
-    }
+    @media (max-width:980px){ .twocol{grid-template-columns:1fr} .notes-grid{grid-template-columns:1fr} }
     .notes-grid { font-size: 10px; }
     .note h3 { font-size: 14px; }
     .note p, .note li { line-height: 1.5; }
@@ -57,8 +54,18 @@
     .clearbtn, .searchbtn{background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;cursor:pointer}
     .clearbtn:hover, .searchbtn:hover{background:#e2e8f0}
 
-    /* ▼ ② 未ヒット時：薄赤の入力ボックス */
+    /* ▼ 未ヒット時：薄赤の入力ボックス */
     .error{background:#fee2e2;border-color:#ef4444}
+
+    /* ▼ 予測変換（サジェスト） */
+    .suggest{position:absolute;left:0;top:100%;margin-top:6px;width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(2,6,23,.12);overflow:hidden;z-index:20}
+    .s-item{display:flex;gap:8px;align-items:center;padding:10px 12px;cursor:pointer}
+    .s-item:hover,.s-item.active{background:#f8fafc}
+    .s-left{flex:1 1 auto}
+    .s-name{font-size:14px;color:#0f172a}
+    .s-sub{font-size:12px;color:#64748b}
+    .s-icon{width:16px;height:16px;opacity:.55}
+    .s-empty{padding:10px 12px;color:#64748b;font-size:12px}
   </style>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
@@ -88,7 +95,7 @@
     function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/Math.max(1,sorted.length):0.5; }
     function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ const p=percentileOfSorted(sorted, x); const e=1e-6; const q=Math.min(1-e,Math.max(e,p)); return Math.log(q/(1-q)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
-    // ▼ ① 全角/半角を統一して比較（NFKCで正規化→小文字化）
+    /* ▼ 全角/半角・大小を無視して比較 */
     const norm = (s)=> (s==null? "" : String(s)).normalize('NFKC').toLowerCase();
 
     const sleep=ms=>new Promise(r=>setTimeout(r,ms)), jitter=(b=140)=> b + Math.floor(Math.random()*180);
@@ -185,7 +192,6 @@
           id:idx+1,
           name,
           ticker,
-          // ▼ 検索用に正規化済みカラムを保持（全角/半角・大小を無視）
           _nameN: norm(name),
           _tickerN: norm(ticker),
           industry: industry || "",
@@ -238,11 +244,16 @@
       const [dataset,setDataset]=React.useState([]);
       const [log,setLog]=React.useState("");
 
-      // ▼ 検索UI
+      /* ▼ 検索UI */
       const [search,setSearch]=React.useState("");
-      const [searchError,setSearchError]=React.useState(false); // ② 未ヒット時の薄赤表示トリガー
+      const [searchError,setSearchError]=React.useState(false);
 
-      // ▼ 絞り込み用の状態
+      /* ▼ サジェスト用状態 */
+      const [suggest, setSuggest] = React.useState([]);   // {id,name,ticker,industry,market}
+      const [sOpen, setSOpen] = React.useState(false);
+      const [sActive, setSActive] = React.useState(-1);   // キーボード選択用
+
+      /* ▼ 絞り込み */
       const [fIndustry, setFIndustry] = React.useState("");
       const [fMarket, setFMarket] = React.useState("");
 
@@ -357,16 +368,70 @@
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
 
-      // ▼ ① ② 対応：ボタン/Enterでのみ検索を実行。全角半角を無視して一致判定。
+      /* ▼ 検索実行（Enter/ボタン） */
       function runSearch(){
         const keyN = norm(search.trim());
         if(!keyN){ setSearchError(true); return; }
         const hit = dataset.find(r => r._nameN.includes(keyN) || r._tickerN.includes(keyN));
         if(hit){ fillFromRow(hit,true); setSearchError(false); }
         else{ setSearchError(true); }
+        setSOpen(false); setSActive(-1);
       }
-      function onSearchEnter(e){
-        if(e.key==="Enter"){ runSearch(); }
+
+      /* ▼ サジェスト作成：入力のたびに更新（最大10件、名前順。前方一致を優先） */
+      function updateSuggest(next){
+        const keyN = norm(next.trim());
+        if(!keyN){ setSuggest([]); setSOpen(false); setSActive(-1); return; }
+        const hits = dataset.filter(r => r._nameN.includes(keyN));
+        // 前方一致優先 → それ以外 → 名前昇順（日本語ロケール）
+        const starts = hits.filter(r => r._nameN.startsWith(keyN));
+        const rest   = hits.filter(r => !r._nameN.startsWith(keyN));
+        const sortByName = (a,b)=> (a.name||"").localeCompare(b.name||"", 'ja');
+        const sorted = starts.sort(sortByName).concat(rest.sort(sortByName)).slice(0,10);
+        setSuggest(sorted);
+        setSOpen(sorted.length>0);
+        setSActive(-1);
+      }
+
+      function chooseSuggest(row){
+        if(!row) return;
+        setSearch(row.name);
+        setSearchError(false);
+        setSOpen(false);
+        setSActive(-1);
+        fillFromRow(row,true);
+      }
+
+      function onSearchInput(e){
+        const v=e.target.value;
+        setSearch(v);
+        if(searchError) setSearchError(false);
+        updateSuggest(v);
+      }
+
+      function onSearchKeyDown(e){
+        if(!sOpen || suggest.length===0){
+          if(e.key==="Enter"){ runSearch(); }
+          return;
+        }
+        if(e.key==="ArrowDown"){
+          e.preventDefault();
+          setSActive(i=> Math.min(suggest.length-1, i+1));
+        }else if(e.key==="ArrowUp"){
+          e.preventDefault();
+          setSActive(i=> Math.max(-1, i-1));
+        }else if(e.key==="Enter"){
+          e.preventDefault();
+          if(sActive>=0){ chooseSuggest(suggest[sActive]); }
+          else{ runSearch(); }
+        }else if(e.key==="Escape"){
+          setSOpen(false); setSActive(-1);
+        }
+      }
+
+      function onBlurClose(e){
+        // サジェスト領域のクリックで即閉じないよう少し遅らせる
+        setTimeout(()=> setSOpen(false), 100);
       }
 
       function scoreRow(row){
@@ -443,15 +508,33 @@
                       className: searchError ? "error" : "",
                       value:search,
                       placeholder:"例）トヨタ / 7203.T ",
-                      onChange:e=>{ setSearch(e.target.value); if(searchError) setSearchError(false); },
-                      onKeyDown:onSearchEnter
+                      onChange:onSearchInput,
+                      onKeyDown:onSearchKeyDown,
+                      onBlur:onBlurClose
                     }),
-                    h("button",{className:"searchbtn",onClick:runSearch},"検索")
+                    h("button",{className:"searchbtn",onClick:runSearch},"検索"),
+
+                    /* ▼ サジェストドロップダウン */
+                    sOpen ? h("div",{className:"suggest"},
+                      suggest.length===0
+                        ? h("div",{className:"s-empty"},"候補はありません")
+                        : suggest.map((r,idx)=> h("div",{
+                            key:r.id,className:"s-item"+(idx===sActive?" active":""),onMouseDown:(e)=>{e.preventDefault(); chooseSuggest(r);}
+                          },
+                          h("svg",{className:"s-icon",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"2"},
+                            h("circle",{cx:"11",cy:"11",r:"7"}), h("line",{x1:"21",y1:"21",x2:"16.65",y2:"16.65"})
+                          ),
+                          h("div",{className:"s-left"},
+                            h("div",{className:"s-name"}, r.name||"-"),
+                            h("div",{className:"s-sub"}, `${r.ticker||"-"} / ${r.industry||"-"}${r.market? "・"+r.market:""}`)
+                          )
+                        ))
+                    ) : null
                   )
                 )
               ),
 
-              /* ▼ 変更後の並び：会社名（ティッカー） / 現在株価 */
+              /* 会社名（ティッカー） / 現在株価 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"会社名"),
                   h("input",{className:"disabled",value:displayCompany,disabled:true})
@@ -460,7 +543,7 @@
                   h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
 
-              /* ▼ 2行目：業種 / 市場区分 */
+              /* 業種 / 市場区分 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"業種"),
                   h("input",{value:industry,onChange:e=>setIndustry(e.target.value)})),
@@ -468,7 +551,7 @@
                   h("input",{value:market,onChange:e=>setMarket(e.target.value)}))
               ),
 
-              /* ▼ 3行目：PER / PBR */
+              /* PER / PBR */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"PER"),
                   h("input",{value: per??"", onChange:e=>setPer(toNum(e.target.value)), inputMode:"decimal"})),
@@ -544,7 +627,6 @@
                 h("div",null, h("span",{className:"tag"},"すばらしい: "+counts.great)," ",h("span",{className:"tag"},"よい: "+counts.good))
               ),
 
-              // ▼ フィルターバー（業種 / 市場区分 / クリア）
               h("div",{className:"filterbar"},
                 h("div",null,
                   h("div",{className:"label"},"業種で絞り込み"),
@@ -578,7 +660,7 @@
               )
             ),
 
-            /* ▼ スクリーナー下の注意書き（2列） */
+            /* 注意書き */
             h("div",{className:"card",style:{marginTop:16}},
               h("div",{className:"notes-grid"},
                 h("div",{className:"note"},
@@ -624,4 +706,3 @@
   </script>
 </body>
 </html>
-
