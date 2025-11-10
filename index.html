@@ -315,7 +315,7 @@
         if(cohort){
           const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted); // 成長：大きいほど良い
           const zSe    = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);    // 安定：小さいほど良い
-          const k = 0.7; // 滑らかさ（強すぎると0/100に貼り付くので1.0〜1.5程度）
+          const k = 0.5; // 滑らかさ（強すぎると0/100に貼り付くので1.0〜1.5程度）
           growthScore = clamp( smoothLogistic(zSlope, 50, 50, k), 0, 100 );
           breScore    = clamp( smoothLogistic(-zSe,   50, 50, k), 0, 100 ); // 符号反転でSE小→高スコア
         }
@@ -326,7 +326,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roeArr=asArr(roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roeArr[roeArr.length-1])? roeArr[roeArr.length-1]:0;
-        const lastRoeScore=6/(1+Math.exp(-10*(lastRoe-12)/12)); // 12%で3点
+        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で3点
         const slope=roeArr.length>=2? linreg(roeArr).slope:0;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -440,7 +440,7 @@
         if(cohort){
           const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
           const zSe    = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
-          const k = 0.7;
+          const k = 0.5;
           growthScore = clamp( smoothLogistic(zSlope, 50, 50, k), 0, 100 );
           breScore    = clamp( smoothLogistic(-zSe,   50, 50, k), 0, 100 );
           opTrendScore=((growthScore+breScore)/2)*0.05;
@@ -449,7 +449,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roePct[4])? roePct[4]:0;
-        const lastRoeScore=6/(1+Math.exp(-10*(lastRoe-12)/12)); // 12%で3点
+        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で3点
         const slope=linreg(roePct).slope;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -707,4 +707,5 @@
   </script>
 </body>
 </html>
+
 
