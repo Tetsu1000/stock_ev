@@ -442,7 +442,7 @@
                     h("input",{
                       className: searchError ? "error" : "",
                       value:search,
-                      placeholder:"例）トヨタ / 7203.T / KDDI",
+                      placeholder:"例）トヨタ / 7203.T ",
                       onChange:e=>{ setSearch(e.target.value); if(searchError) setSearchError(false); },
                       onKeyDown:onSearchEnter
                     }),
@@ -624,3 +624,4 @@
   </script>
 </body>
 </html>
+
