@@ -32,13 +32,14 @@
     .muted{color:#64748b;font-size:12px}
     .hdr{display:grid;grid-template-columns:1.6fr .9fr .7fr .8fr;gap:10px;margin:4px 0 8px;font-size:12px;color:#64748b}
     .searchrow{display:grid;grid-template-columns:1fr;gap:12px}
+    .searchbar{display:grid;grid-template-columns:1fr auto;gap:8px}
+    .statusrow{display:flex;align-items:center;justify-content:space-between}
+    .status-msg{font-size:12px;color:#dc2626}
     .tag{font-size:12px;color:#475569;background:#e2e8f0;border-radius:8px;padding:2px 6px}
     .small{font-size:12px;color:#64748b;word-break:break-all}
     .headrow{display:flex;align-items:center;gap:10px;justify-content:space-between}
     .headrow h2{font-size:18px;margin:0;color:#0f172a}
     .headline{font-size:24px;font-weight:800}
-
-    /* ▼ 注意書き（2列レイアウト） */
     .notes-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
     .note h3{font-size:16px;margin:0 0 8px}
     .note p{margin:8px 0 6px;color:#334155;font-size:14px}
@@ -49,15 +50,15 @@
       .twocol{grid-template-columns:1fr}
       .notes-grid{grid-template-columns:1fr}
     }
-    /* 追加：注意書きの文字サイズ調整 */
     .notes-grid { font-size: 10px; }
     .note h3 { font-size: 14px; }
     .note p, .note li { line-height: 1.5; }
-
-    /* ▼ フィルターバー */
     .filterbar{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin:8px 0 10px}
-    .clearbtn{background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;cursor:pointer}
-    .clearbtn:hover{background:#e2e8f0}
+    .clearbtn, .searchbtn{background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;cursor:pointer}
+    .clearbtn:hover, .searchbtn:hover{background:#e2e8f0}
+
+    /* ▼ ② 未ヒット時：薄赤の入力ボックス */
+    .error{background:#fee2e2;border-color:#ef4444}
   </style>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin defer></script>
@@ -87,9 +88,8 @@
     function percentileOfSorted(sorted, x){ let lo=0, hi=sorted.length; while(lo<hi){ const mid=(lo+hi>>1); if(sorted[mid]<x) lo=mid+1; else hi=mid; } return sorted.length? lo/Math.max(1,sorted.length):0.5; }
     function zRobust(x, med, madVal, sorted){ if(madVal<1e-8 && sorted){ const p=percentileOfSorted(sorted, x); const e=1e-6; const q=Math.min(1-e,Math.max(e,p)); return Math.log(q/(1-q)); } return (x - med) / (1.4826*Math.max(1e-9, madVal)); }
 
-    // 0-100 に写像するためのシグモイド（平均≒50）
-    const sigmoid01 = (z,k=1.2)=> 1/(1+Math.exp(-k*z));
-    const toScore0100 = (z,k=1.2)=> clamp(sigmoid01(z,k)*100,0,100);
+    // ▼ ① 全角/半角を統一して比較（NFKCで正規化→小文字化）
+    const norm = (s)=> (s==null? "" : String(s)).normalize('NFKC').toLowerCase();
 
     const sleep=ms=>new Promise(r=>setTimeout(r,ms)), jitter=(b=140)=> b + Math.floor(Math.random()*180);
     const qCache=new Map(), TTL=5*60*1000;
@@ -178,10 +178,16 @@
         const perVal= toNum(g("PER","per"));
         const pbrVal= toNum(g("PBR","pbr"));
 
+        const name = g("company","Company")||"";
+        const ticker = String(g("ticker","Ticker")||"");
+
         return {
           id:idx+1,
-          name: g("company","Company")||"",
-          ticker: String(g("ticker","Ticker")||""),
+          name,
+          ticker,
+          // ▼ 検索用に正規化済みカラムを保持（全角/半角・大小を無視）
+          _nameN: norm(name),
+          _tickerN: norm(ticker),
           industry: industry || "",
           market: market || "",
           op: years.map(getOp),
@@ -231,9 +237,12 @@
       const [opNextEst,setOpNextEst]=React.useState(0);
       const [dataset,setDataset]=React.useState([]);
       const [log,setLog]=React.useState("");
-      const [search,setSearch]=React.useState("");
 
-      // ▼ 絞り込み
+      // ▼ 検索UI
+      const [search,setSearch]=React.useState("");
+      const [searchError,setSearchError]=React.useState(false); // ② 未ヒット時の薄赤表示トリガー
+
+      // ▼ 絞り込み用の状態
       const [fIndustry, setFIndustry] = React.useState("");
       const [fMarket, setFMarket] = React.useState("");
 
@@ -265,52 +274,50 @@
           appendLog("→ ?data= でURLを指定してください。");
         }})(); },[]);
 
-      // コホート（分布情報）
       const cohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopeDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.slope/m; });
         const seDivs=dataset.map(r=>{ const lr=linreg(r.op); const m=Math.max(1e-9,mean(r.op)); return lr.se/m; });
+        const invs=seDivs.map(x=>1/Math.max(1e-9,x));
+        const muSlope=mean(slopeDivs), sdSlope=Math.max(1e-9,stdev(slopeDivs));
+        const muSe=mean(seDivs), sdSe=Math.max(1e-9,stdev(seDivs));
+        const min1=Math.min(...slopeDivs), max1=Math.max(...slopeDivs);
+        const min2=Math.min(...invs),      max2=Math.max(...invs);
+        const medSlope=median(slopeDivs), madSlope=mad(slopeDivs);
+        const medSe=median(seDivs),       madSe=mad(seDivs);
         const slopeSorted=slopeDivs.slice().sort((x,y)=>x-y);
         const seSorted=seDivs.slice().sort((x,y)=>x-y);
-        return {
-          medSlope: median(slopeDivs), madSlope: mad(slopeDivs), slopeSorted,
-          medSe: median(seDivs),       madSe:   mad(seDivs),     seSorted
-        };
+        return {muSlope,sdSlope,muSe,sdSe,min1,max1,min2,max2, medSlope,madSlope,medSe,madSe, slopeSorted,seSorted};
       },[dataset]);
 
       const roeSlopeCohort=React.useMemo(()=>{
         if(!dataset.length) return null;
         const slopes=dataset.map(r=>asArr(r.roe).filter(Number.isFinite)).map(a=>(a.length>=2? linreg(a).slope : null)).filter(x=>Number.isFinite(x));
         if(!slopes.length) return null;
-        const mu=mean(slopes);
+        const mu=slopes.reduce((s,v)=>s+v,0)/slopes.length;
         const sd=Math.max(1e-9,stdev(slopes));
         return {mu,sd};
       },[dataset]);
 
-      // =========================
-      // 中央の会社カードの計算
-      // =========================
       const calc=React.useMemo(()=>{
         const lr=linreg(op), mOP=Math.max(1e-9,mean(op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
 
-        // --- ここを「平均50・0-100 のスムースロジスティック」へ変更 ---
         let growthScore=50, breScore=50;
         if(cohort){
-          const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted); // 成長：大きいほど良
-          const zStab  = - zRobust(seDiv,   cohort.medSe,    cohort.madSe,    cohort.seSorted);   // 安定：小さいほど良 → 符号反転
-          const k = 0.25; // 勾配（体感で調整。±1で約27/73、±2で約12/88）
-          growthScore = toScore0100(zSlope, k);
-          breScore    = toScore0100(zStab,  k);
+          const mm1=(slopeDiv-cohort.min1)/Math.max(1e-9,cohort.max1-cohort.min1);
+          const inv=1/Math.max(1e-9,seDiv);
+          const mm2=(inv-cohort.min2)/Math.max(1e-9,cohort.max2-cohort.min2);
+          growthScore=clamp(mm1*100,0,100);
+          breScore   =clamp(mm2*100,0,100);
         }
-        const opTrendScore=((growthScore+breScore)/2)*0.05; // 0-5点レンジは維持
-
+        const opTrendScore=((growthScore+breScore)/2)*0.05;
         const fundGenScore=asArr(fcf).filter(x=>(Number(x)||0)>0).length;
 
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roeArr=asArr(roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roeArr[roeArr.length-1])? roeArr[roeArr.length-1]:0;
-        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で≈3に寄せる版
+        const lastRoeScore=6/(1+Math.exp(-25*(lastRoe-12)/12));
         const slope=roeArr.length>=2? linreg(roeArr).slope:0;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -318,17 +325,15 @@
 
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
-        // r,gN は既存の滑らかなロジスティックを維持（期待収益率・長期成長率）
         let r=0.07,gN=0.025;
         if(cohort){
           const seStd   = zRobust(seDiv,    cohort.medSe,    cohort.madSe,    cohort.seSorted);
           const slopeStd= zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
-          const kr=2.0, kg=0.5;
+          const kr=1.0, kg=0.7;
           r = smoothLogistic(seStd,   7.0, 3.0, kr)/100;
           gN= smoothLogistic(slopeStd,2.5, 2.5,kg)/100;
         }
 
-        // 目標株価などは従来通り
         const lastActual=Number(op[4])||0;
         const nowEst=Number(opNowEst)||0;
         const nextEst=Number(opNextEst)||0;
@@ -352,58 +357,49 @@
         return {opTrendScore,fundGenScore,barrierScore,investScore,r,gN,target,valVerdict,valLabel,undervalPct};
       },[op,fcf,roe,sharesOku,price,cohort,opNowEst,opNextEst,roeSlopeCohort]);
 
-      function onSearchChange(v){
-        setSearch(v);
-        const key=v.trim().toLowerCase(); if(!key) return;
-        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
-        if(hit) fillFromRow(hit,false);
+      // ▼ ① ② 対応：ボタン/Enterでのみ検索を実行。全角半角を無視して一致判定。
+      function runSearch(){
+        const keyN = norm(search.trim());
+        if(!keyN){ setSearchError(true); return; }
+        const hit = dataset.find(r => r._nameN.includes(keyN) || r._tickerN.includes(keyN));
+        if(hit){ fillFromRow(hit,true); setSearchError(false); }
+        else{ setSearchError(true); }
       }
       function onSearchEnter(e){
-        if(e.key!=="Enter") return;
-        const key=search.trim().toLowerCase();
-        const hit=dataset.find(r=> r.name.toLowerCase().includes(key)|| r.ticker.toLowerCase().includes(key));
-        if(hit) fillFromRow(hit,true);
+        if(e.key==="Enter"){ runSearch(); }
       }
 
-      // =========================
-      // スクリーナー行ごとの算出（同じ式に合わせて更新）
-      // =========================
       function scoreRow(row){
         const lr=linreg(row.op), mOP=Math.max(1e-9,mean(row.op));
         const slopeDiv=lr.slope/mOP, seDiv=lr.se/mOP;
-
         let growthScore=50, breScore=50, opTrendScore=0;
         if(cohort){
-          const zSlope = zRobust(slopeDiv, cohort.medSlope, cohort.madSlope, cohort.slopeSorted);
-          const zStab  = - zRobust(seDiv,   cohort.medSe,    cohort.madSe,    cohort.seSorted);
-          const k=0.25;
-          growthScore = toScore0100(zSlope, k);
-          breScore    = toScore0100(zStab,  k);
+          const mm1=(slopeDiv-cohort.min1)/Math.max(1e-9,cohort.max1-cohort.min1);
+          const inv=1/Math.max(1e-9,seDiv);
+          const mm2=(inv-cohort.min2)/Math.max(1e-9,cohort.max2-cohort.min2);
+          growthScore=clamp(mm1*100,0,100);
+          breScore   =clamp(mm2*100,0,100);
           opTrendScore=((growthScore+breScore)/2)*0.05;
         }
-
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roePct[4])? roePct[4]:0;
-        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12));
+        const lastRoeScore=6/(1+Math.exp(-25*(lastRoe-12)/12));
         const slope=linreg(roePct).slope;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
         const barrierScore=lastRoeScore+roeGrowthScore;
-
         const fundGenScore=asArr(row.fcf).filter(x=>(Number(x)||0)>0).length;
         const investScore=opTrendScore+fundGenScore+barrierScore;
 
-        // 表示用 r,gN（各社個別ツールチップ）
         let r=0.07,gN=0.025;
         if(cohort){
           const seStd = zRobust(seDiv,cohort.medSe,cohort.madSe,cohort.seSorted);
           const slopeStd=zRobust(slopeDiv,cohort.medSlope,cohort.madSlope,cohort.slopeSorted);
-          const kr=2.0, kg=0.5;
+          const kr=1.2, kg=1.2;
           r=smoothLogistic(seStd,7.0,3.0,kr)/100;
           gN=smoothLogistic(slopeStd,2.5,2.5,kg)/100;
         }
-
         let label="",cls="";
         if(investScore<8){ label="売るべき企業"; cls="sell"; }
         else if(investScore<10){ label="様子見企業"; cls="neu"; }
@@ -414,12 +410,10 @@
 
       const ranked=React.useMemo(()=> dataset.map(r=>({...r,_s:scoreRow(r)})).sort((a,b)=> b._s.investScore - a._s.investScore),[dataset,cohort,roeSlopeCohort]);
 
-      // ▼ プルダウン候補
       const uniq = (arr)=> Array.from(new Set(arr.filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ja'));
       const industryOpts = React.useMemo(()=> uniq(dataset.map(r=>r.industry||"")), [dataset]);
       const marketOpts   = React.useMemo(()=> uniq(dataset.map(r=>r.market||"")), [dataset]);
 
-      // ▼ 絞り込み
       const filteredRanked = React.useMemo(()=> ranked.filter(r =>
         (fIndustry? r.industry===fIndustry : true) &&
         (fMarket  ? r.market===fMarket   : true)
@@ -440,8 +434,20 @@
             h("div",{className:"card",style:{marginBottom:16}},
               h("div",{className:"searchrow"},
                 h("div",null,
-                  h("div",{className:"label"},"会社名 / ティッカーを検索（入力でフォームへ反映、Enterで確定）"),
-                  h("input",{value:search,placeholder:"例）トヨタ / 7203.T",onChange:e=>onSearchChange(e.target.value),onKeyDown:onSearchEnter})
+                  h("div",{className:"statusrow"},
+                    h("div",{className:"label"},"会社名 / ティッカーを検索（入力でフォームへ反映、Enterで確定）"),
+                    searchError ? h("span",{className:"status-msg"},"※検索対象が見つかりませんでした") : null
+                  ),
+                  h("div",{className:"searchbar"},
+                    h("input",{
+                      className: searchError ? "error" : "",
+                      value:search,
+                      placeholder:"例）トヨタ / 7203.T / KDDI",
+                      onChange:e=>{ setSearch(e.target.value); if(searchError) setSearchError(false); },
+                      onKeyDown:onSearchEnter
+                    }),
+                    h("button",{className:"searchbtn",onClick:runSearch},"検索")
+                  )
                 )
               ),
 
@@ -451,18 +457,15 @@
                   h("input",{className:"disabled",value:displayCompany,disabled:true})
                 ),
                 h("div",null, h("div",{className:"label"},"現在株価（円）"),
-                  h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"})
-                )
+                  h("input",{value:price,onChange:e=>setPrice(toNum(e.target.value)),inputMode:"decimal"}))
               ),
 
-              /* ▼ 2行目：業種 / 市場区分（dataset.xlsx Y列） */
+              /* ▼ 2行目：業種 / 市場区分 */
               h("div",{className:"row",style:{marginTop:10}},
                 h("div",null, h("div",{className:"label"},"業種"),
-                  h("input",{value:industry,onChange:e=>setIndustry(e.target.value)})
-                ),
+                  h("input",{value:industry,onChange:e=>setIndustry(e.target.value)})),
                 h("div",null, h("div",{className:"label"},"市場区分"),
-                  h("input",{value:market,onChange:e=>setMarket(e.target.value)})
-                )
+                  h("input",{value:market,onChange:e=>setMarket(e.target.value)}))
               ),
 
               /* ▼ 3行目：PER / PBR */
@@ -621,7 +624,3 @@
   </script>
 </body>
 </html>
-
-
-
-
