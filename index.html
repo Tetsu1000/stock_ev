@@ -326,7 +326,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roeArr=asArr(roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roeArr[roeArr.length-1])? roeArr[roeArr.length-1]:0;
-        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で3点
+        const lastRoeScore=6/(1+Math.exp(-1*(lastRoe-12)/12)); // 12%で3点
         const slope=roeArr.length>=2? linreg(roeArr).slope:0;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -449,7 +449,7 @@
         const {mu:roeMu, sd:roeSd}=roeSlopeCohort ?? {mu:0, sd:1e-9};
         const roePct=asArr(row.roe).filter(Number.isFinite);
         const lastRoe=Number.isFinite(roePct[4])? roePct[4]:0;
-        const lastRoeScore=6/(1+Math.exp(-5*(lastRoe-12)/12)); // 12%で3点
+        const lastRoeScore=6/(1+Math.exp(-1*(lastRoe-12)/12)); // 12%で3点
         const slope=linreg(roePct).slope;
         const z=(slope-roeMu)/Math.max(1e-9,roeSd);
         const roeGrowthScore=Math.tanh(z);
@@ -707,5 +707,6 @@
   </script>
 </body>
 </html>
+
 
 
